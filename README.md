@@ -3,7 +3,7 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.4.3-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.4-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 

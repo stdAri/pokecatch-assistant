@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.4.3", () => {
-  assert.equal(packageJson.version, "0.4.3");
-  assert.ok(source.includes("// @version      0.4.3"));
-  assert.ok(source.includes('const VERSION = "0.4.3"'));
-  assert.ok(viteConfig.includes('version: "0.4.3"'));
+test("userscript and development metadata share version 0.4.4", () => {
+  assert.equal(packageJson.version, "0.4.4");
+  assert.ok(source.includes("// @version      0.4.4"));
+  assert.ok(source.includes('const VERSION = "0.4.4"'));
+  assert.ok(viteConfig.includes('version: "0.4.4"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -178,6 +178,53 @@ test("weather is calculated per chapter and applied to encounter tables", () => 
   assert.equal(weatherAt(steel, steelRoute39, "2026-11-16T19:30:00+08:00"), "rain");
   assert.equal(weatherAt(wing, wingRoute29, "2026-11-16T21:00:00+08:00", "night"), "rain");
   assert.equal(weatherAt(wing, wingRoute29, "2026-11-16T23:00:00+08:00", "night"), "storm");
+});
+
+test("weather-limited forms stay eligible and outrank ordinary automatic targets", () => {
+  const settings = { regionScope: "all", customRegions: [], manualTargets: [] };
+  const { chapter, currentRegion, habitatForRoute, availableChapters, potentialWildTarget,
+    weatherFlexibility, planPriority, comparePriority } = sourceFunctions([
+    "chapter", "currentRegion", "habitatForRoute", "availableChapters", "potentialWildTarget",
+    "weatherFlexibility", "planPriority", "comparePriority",
+  ], { DATA: data, settings });
+  const save = { adv: { chapter: 15, unlocked: 20 } };
+  assert.equal(potentialWildTarget(save, 20127), true);
+  const stormOnly = { speciesId: 20124, chapter: 15, zone: "阿露福遗迹", sourceZone: "Ruines d'Alpha", weatherLimited: true, weight: 2, score: 2 };
+  const rainOrStorm = { speciesId: 20120, chapter: 15, zone: "阿露福遗迹", sourceZone: "Ruines d'Alpha", weatherLimited: true, weight: 3, score: 3 };
+  assert.equal(weatherFlexibility(save, stormOnly), 1);
+  assert.equal(weatherFlexibility(save, rainOrStorm), 2);
+  assert.ok(comparePriority(planPriority(save, stormOnly), planPriority(save, rainOrStorm)) < 0);
+  settings.manualTargets = [20120];
+  assert.ok(comparePriority(planPriority(save, rainOrStorm), planPriority(save, stormOnly)) < 0);
+  assert.equal(chapter(15).name, "昆虫徽章");
+  assert.equal(currentRegion(save), "johto");
+  assert.ok(availableChapters(save).length > 0);
+});
+
+test("collection queue UI shows three automatic targets and waiting farms the strongest unlocked chapter", () => {
+  assert.ok(source.includes('id="pca-collection-queue"'));
+  assert.ok(source.includes(".filter((plan) => !settings.manualTargets.includes(plan.speciesId))"));
+  assert.ok(source.includes(".slice(0, 3)"));
+  assert.ok(source.includes("runtime.timer = setInterval(tick, 900)"));
+  assert.ok(source.includes("Number(item?.until) > now ? 1 : 0"));
+  assert.ok(source.includes("JSON.stringify(save.stats?.byReg || {})"));
+  assert.ok(source.includes('collectTick(save, { trackRoamers: false, collectMissing: true })'));
+  assert.ok(source.includes('collectTick(save, { trackRoamers: true, collectMissing: false })'));
+  assert.ok(source.includes('collectTick(save, { trackRoamers: true, collectMissing: true })'));
+  const settings = { regionScope: "all", customRegions: [], manualTargets: [] };
+  const { chapter, currentRegion, availableChapters, moneyFarmPlan } = sourceFunctions(
+    ["chapter", "currentRegion", "availableChapters", "moneyFarmPlan"],
+    { DATA: data, settings },
+  );
+  const save = { adv: { chapter: 15, unlocked: 20 } };
+  const expected = data.chapters.filter((item) => item.index <= 20 && item.routes.some((route) => route.wild > 0))
+    .sort((a, b) => (b.ace || 0) - (a.ace || 0) || b.index - a.index)[0];
+  const farm = moneyFarmPlan(save);
+  assert.equal(farm.chapter, expected.index);
+  assert.equal(farm.moneyFarm, true);
+  assert.equal(chapter(farm.chapter).name, expected.name);
+  assert.equal(currentRegion(save), "johto");
+  assert.ok(availableChapters(save).some((item) => item.index === farm.chapter));
 });
 
 test("collection route boundary follows saved nodes and stops after Route 34", () => {

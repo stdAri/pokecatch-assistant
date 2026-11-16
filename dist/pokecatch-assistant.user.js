@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.4.3
+// @version      0.4.4
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.4.3";
+  const VERSION = "0.4.4";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -49,6 +49,7 @@
       ordinaryTargets: "普通野外目标", region: "地区", currentRegion: "当前地区", allRegions: "所有已解锁地区", customRegions: "自定义地区",
       manualPlaceholder: "手动优先编号，如 214,201-H,493-A", apply: "应用",
       targetNote: "只会加入尚未捕获、且在所选范围内有野外地点或已解锁特殊地点的目标；按填写顺序优先。",
+      collectionQueue: "当前待抓队列", queueEmpty: "当前没有可立即捕获的自动目标", waitingCondition: "等待条件", moneyFarm: "刷钱等待天气",
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
       duplicateKeepTitle: "重复宝可梦保留", enableDuplicateKeeps: "全部开启", disableDuplicateKeeps: "全部关闭", cancelDuplicateKeeps: "取消批量操作",
@@ -75,6 +76,7 @@
       ordinaryTargets: "Ordinary wild targets", region: "Region", currentRegion: "Current region", allRegions: "All unlocked regions", customRegions: "Custom regions",
       manualPlaceholder: "Priority numbers, e.g. 214,201-H,493-A", apply: "Apply",
       targetNote: "Only uncaught targets with a wild location or unlocked special location in the selected scope are added, in the order entered.",
+      collectionQueue: "Current catch queue", queueEmpty: "No automatic target is immediately available", waitingCondition: "Waiting for conditions", moneyFarm: "Farming money while waiting for weather",
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
       duplicateKeepTitle: "Keep duplicates", enableDuplicateKeeps: "Enable all", disableDuplicateKeeps: "Disable all", cancelDuplicateKeeps: "Cancel bulk action",
@@ -137,6 +139,9 @@
     lastAutomatedActionAt: 0,
     panelResizeBound: false,
     duplicateKeep: null,
+    collectionQueue: [],
+    collectionQueueSignature: "",
+    waitingPlan: null,
   };
 
   let settings = loadSettings();
@@ -892,6 +897,8 @@
         const weather = currentWeatherForRoute(save, item, route, timestamp, phase);
         const weight = routeWeights(route, phase, weather)[speciesId] || 0;
         if (weight <= 0) continue;
+        const dryWeight = routeWeights(route, phase, null)[speciesId] || 0;
+        const weatherLimited = Boolean(weather && dryWeight <= 0);
         const prefixCost = route.stepIndex + 1;
         const score = weight * Math.max(1, route.wild) / prefixCost;
         plans.push({
@@ -906,6 +913,7 @@
           score,
           phase,
           weather,
+          weatherLimited,
         });
       }
     }
@@ -1022,29 +1030,92 @@
     return [...plansForSpecies(save, speciesId, timestamp), ...specialPlansForSpecies(save, speciesId)];
   }
 
-  function chooseMissingPlan(save) {
-    if (settings.manualTargets.length) {
-      for (const id of settings.manualTargets) {
-        if (isCaught(save, id)) continue;
-        const option = collectionPlansForSpecies(save, id)[0];
-        if (option) return option;
+  function potentialWildTarget(save, speciesId) {
+    for (const item of availableChapters(save)) {
+      for (const route of item.routes) {
+        const habitat = habitatForRoute(route);
+        if (!habitat) {
+          if (route.species?.includes(Number(speciesId))) return true;
+          continue;
+        }
+        if (Object.values(habitat).some((table) => Number(table?.[speciesId] || 0) > 0)) return true;
       }
     }
-    const plans = [];
-    for (const [id] of Object.entries(DATA.species)) {
-      if (isCaught(save, id)) continue;
-      const options = collectionPlansForSpecies(save, Number(id));
-      if (options.length) plans.push(options[0]);
-    }
-    return plans.sort((a, b) => b.score - a.score || a.prefixCost - b.prefixCost)[0] || null;
+    return false;
   }
 
-  function nextConditionalPlan(save, hours = 48) {
+  function weatherFlexibility(save, plan) {
+    const item = chapter(plan.chapter);
+    const route = item?.routes.find((candidate) => candidate.name === plan.zone && candidate.sourceName === plan.sourceZone)
+      || item?.routes.find((candidate) => candidate.name === plan.zone || candidate.sourceName === plan.sourceZone);
+    const habitat = route && habitatForRoute(route);
+    if (!habitat) return Number.POSITIVE_INFINITY;
+    return Object.keys(DATA.weather.types).filter((weather) => Number(habitat[weather]?.[plan.speciesId] || 0) > 0).length || Number.POSITIVE_INFINITY;
+  }
+
+  function planPriority(save, plan) {
+    const manualIndex = settings.manualTargets.indexOf(plan.speciesId);
+    if (manualIndex >= 0) return [0, manualIndex, 0, -plan.score];
+    if (plan.weatherLimited) return [1, 0, weatherFlexibility(save, plan), plan.weight || 0];
+    return [2, 0, 0, -plan.score];
+  }
+
+  function comparePriority(left, right) {
+    for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+      const difference = (left[index] || 0) - (right[index] || 0);
+      if (difference) return difference;
+    }
+    return 0;
+  }
+
+  function buildCollectionQueue(save) {
+    const bestBySpecies = new Map();
+    for (const [id] of Object.entries(DATA.species)) {
+      if (isCaught(save, id)) continue;
+      const option = collectionPlansForSpecies(save, Number(id))[0];
+      if (option) bestBySpecies.set(Number(id), option);
+    }
+    return [...bestBySpecies.values()].sort((a, b) => comparePriority(planPriority(save, a), planPriority(save, b)));
+  }
+
+  function collectionQueueSignature(save) {
+    const now = Number(save.lastTick) || Date.now();
+    const caught = Object.values(save.dex || {}).reduce((total, item) => total + (Number(item?.caught || 0) > 0 ? 1 : 0), 0);
+    const roamWeather = Object.entries(save.roam?.at || {})
+      .map(([id, item]) => `${id}:${item?.ch}:${item?.until}:${Number(item?.until) > now ? 1 : 0}`)
+      .sort().join("|");
+    const unlocks = [
+      save.adv.chapter,
+      save.adv.unlocked,
+      [...(save.adv.badges || [])].sort().join(","),
+      Object.keys(save.zoneDoors || {}).filter((key) => save.zoneDoors[key]).sort().join(","),
+      Object.entries(save.items || {}).filter(([, count]) => Number(count) > 0).map(([key]) => key).sort().join(","),
+      JSON.stringify(save.stats?.byReg || {}),
+      JSON.stringify(save.elite || {}),
+    ].join("|");
+    return [Math.floor(now / DATA.weather.slotMs), daytimePhaseAt(now), caught, settings.regionScope,
+      settings.customRegions.join(","), settings.manualTargets.join(","), roamWeather, unlocks].join(";");
+  }
+
+  function refreshCollectionQueue(save, force = false) {
+    const signature = collectionQueueSignature(save);
+    if (force || signature !== runtime.collectionQueueSignature) {
+      runtime.collectionQueue = buildCollectionQueue(save);
+      runtime.collectionQueueSignature = signature;
+    }
+    return runtime.collectionQueue;
+  }
+
+  function chooseMissingPlan(save) {
+    return refreshCollectionQueue(save)[0] || null;
+  }
+
+  function nextConditionalPlan(save, hours = 168, targetIds = null) {
     const now = Number(save.lastTick) || Date.now();
     const start = Math.floor(now / DATA.weather.slotMs) * DATA.weather.slotMs;
-    const ids = settings.manualTargets.length
-      ? settings.manualTargets.filter((id) => !isCaught(save, id))
-      : Object.keys(DATA.species).map(Number).filter((id) => !isCaught(save, id));
+    const automaticIds = Object.keys(DATA.species).map(Number);
+    const ids = (targetIds || [...settings.manualTargets, ...automaticIds.filter((id) => !settings.manualTargets.includes(id))])
+      .filter((id) => !isCaught(save, id));
     for (let offset = 1; offset <= hours; offset += 1) {
       const at = start + offset * DATA.weather.slotMs;
       const options = ids.flatMap((id) => plansForSpecies(save, id, at));
@@ -1054,6 +1125,23 @@
       }
     }
     return null;
+  }
+
+  function moneyFarmPlan(save) {
+    const candidates = availableChapters(save)
+      .map((item) => ({ item, route: [...item.routes].reverse().find((route) => route.wild > 0) }))
+      .filter(({ route }) => route)
+      .sort((a, b) => (b.item.ace || 0) - (a.item.ace || 0) || b.item.index - a.item.index);
+    const selected = candidates[0];
+    if (!selected) return null;
+    return {
+      moneyFarm: true,
+      chapter: selected.item.index,
+      chapterName: selected.item.name,
+      zone: selected.route.name,
+      sourceZone: selected.route.sourceName,
+      score: selected.item.ace || 0,
+    };
   }
 
   function activeRoamersFromState(roamAt, priorityIds, now = Date.now()) {
@@ -1315,7 +1403,21 @@
       return;
     }
 
-    if (runtime.targetPlan && !runtime.targetPlan.roaming && !isCaught(save, runtime.targetPlan.speciesId)) {
+    const preferred = refreshCollectionQueue(save)[0] || null;
+    if (runtime.targetPlan && !runtime.targetPlan.roaming && preferred && preferred.speciesId !== runtime.targetPlan.speciesId) {
+      const shouldPreempt = runtime.targetPlan.moneyFarm
+        || comparePriority(planPriority(save, preferred), planPriority(save, runtime.targetPlan)) < 0;
+      if (shouldPreempt) {
+        const oldName = runtime.targetPlan.moneyFarm ? t("moneyFarm") : species(runtime.targetPlan.speciesId)?.n;
+        log(`${species(preferred.speciesId)?.n || preferred.speciesId}优先级已生效，暂停${oldName || "当前目标"}并重新规划`);
+        runtime.target = null;
+        runtime.targetPlan = null;
+        runtime.teamPlan = null;
+        runtime.chapterReset = null;
+      }
+    }
+
+    if (runtime.targetPlan?.speciesId && !runtime.targetPlan.roaming && !isCaught(save, runtime.targetPlan.speciesId)) {
       const stillAvailable = collectionPlansForSpecies(save, runtime.targetPlan.speciesId).some((plan) => (
         plan.chapter === runtime.targetPlan.chapter && plan.zone === runtime.targetPlan.zone
       ));
@@ -1328,27 +1430,34 @@
       }
     }
 
-    if (!runtime.targetPlan || isCaught(save, runtime.targetPlan.speciesId)) {
+    if (!runtime.targetPlan || (runtime.targetPlan.speciesId && isCaught(save, runtime.targetPlan.speciesId))) {
       const next = chooseMissingPlan(save);
       if (!next) {
         const waiting = nextConditionalPlan(save);
         if (waiting) {
-          const waitingKey = `dex:waiting:${waiting.speciesId}:${waiting.availableAt}`;
+          runtime.waitingPlan = waiting;
+          const farm = moneyFarmPlan(save);
+          const waitingKey = farm ? `farm:${farm.chapter}` : `dex:waiting:${waiting.speciesId}:${waiting.availableAt}`;
           if (runtime.target !== waitingKey) {
             const condition = [waiting.phase, waiting.weather].filter(Boolean).join(" / ");
             log(`等待${species(waiting.speciesId)?.n || waiting.speciesId}条件：${waiting.chapterName} · ${new Date(waiting.availableAt).toLocaleString()}${condition ? ` · ${condition}` : ""}`);
+            if (farm) log(`等待期间前往${farm.chapterName}刷钱；天气目标出现时立即让位`);
           }
           runtime.target = waitingKey;
-          runtime.targetPlan = null;
+          runtime.targetPlan = farm;
           runtime.teamPlan = null;
-          runtime.teamStatus = `等待条件：${waiting.chapterName} · ${new Date(waiting.availableAt).toLocaleString()}`;
+          runtime.teamStatus = farm
+            ? `${t("moneyFarm")}：${farm.chapterName}`
+            : `${t("waitingCondition")}：${waiting.chapterName} · ${new Date(waiting.availableAt).toLocaleString()}`;
           return;
         }
+        runtime.waitingPlan = null;
         runtime.paused = true;
         notifyUser("自动捕获目标已完成", "当前范围只剩进化、孵蛋、交换、特殊事件或条件尚未满足的目标。 ");
         log("没有可自动刷取的缺失目标，已进入等待状态");
         return;
       }
+      runtime.waitingPlan = null;
       runtime.targetPlan = next;
       runtime.target = `dex:${next.speciesId}`;
       runtime.userTeamOverride = false;
@@ -1473,6 +1582,9 @@
     runtime.paused = false;
     runtime.target = null;
     runtime.targetPlan = null;
+    runtime.collectionQueue = [];
+    runtime.collectionQueueSignature = "";
+    runtime.waitingPlan = null;
     runtime.teamPlan = null;
     runtime.chapterReset = null;
     runtime.userTeamOverride = false;
@@ -1504,6 +1616,9 @@
     runtime.teamPlan = null;
     runtime.chapterReset = null;
     runtime.userTeamOverride = false;
+    runtime.collectionQueue = [];
+    runtime.collectionQueueSignature = "";
+    runtime.waitingPlan = null;
     runtime.expectedChapter = null;
     runtime.pushRegion = null;
     localStorage.setItem(SESSION_KEY, JSON.stringify({ mode: "idle", running: false, at: Date.now() }));
@@ -1609,7 +1724,14 @@
           state = `${t("specialLocation")}：${special.special.zone} · ${special.open ? t("available") : special.reason}`;
           className = special.open ? "valid" : "warn";
         } else if (!plansForSpecies(save, id).length) {
-          state = t("noWildPlace");
+          if (potentialWildTarget(save, id)) {
+            const waiting = nextConditionalPlan(save, 168, [id]);
+            state = waiting
+              ? `${t("waitingCondition")}：${waiting.chapterName} · ${new Date(waiting.availableAt).toLocaleString()}`
+              : t("waitingCondition");
+          } else {
+            state = t("noWildPlace");
+          }
           className = "warn";
         } else if (meta.g || meta.m) {
           state = t("legendaryWild");
@@ -1646,6 +1768,7 @@
       .pca-lang{max-width:92px;font-size:11px;padding:3px}
       .pca-priority-item{display:grid;grid-template-columns:1fr auto 30px 30px;gap:5px;align-items:center;margin:5px 0}.pca-priority-item span{color:#8999bd;font-size:11px;text-align:right}.pca-priority-item .pca-btn{padding:3px 0}
       .pca-targets{display:grid;gap:4px;margin-top:6px}.pca-target{display:flex;justify-content:space-between;gap:8px;border:1px solid #3b4667;border-radius:6px;padding:4px 6px;background:#171c2d}.pca-target small{color:#8fa0c6;text-align:right}.pca-target.valid{border-color:#35684c}.pca-target.warn{border-color:#766129}.pca-target.invalid{border-color:#7b3941;color:#ff9b94}
+      .pca-queue-title{margin-top:10px!important}
       .pca-task-grid{display:grid;grid-template-columns:1fr;gap:7px}.pca-task-btn{width:100%;min-height:36px}.pca-controls .pca-btn{flex:1}
       .pca-region-list{flex-wrap:wrap}
     `;
@@ -1678,6 +1801,8 @@
             <div class="pca-row"><input class="pca-select pca-grow" id="pca-manual-targets" value="${manualTargetsInputValue()}" placeholder="${t("manualPlaceholder")}"><button class="pca-btn" data-act="targets">${t("apply")}</button></div>
             <div id="pca-manual-target-preview" class="pca-targets pca-note">${manualTargetPreviewHtml(manualTargetsInputValue())}</div>
             <div class="pca-note">${t("targetNote")}</div>
+            <h4 class="pca-queue-title">${t("collectionQueue")}</h4>
+            <div id="pca-collection-queue" class="pca-targets"><div class="pca-note">${t("queueEmpty")}</div></div>
           </div>
           <div class="pca-card"><h4>${t("roamers")}</h4>
             <div class="pca-note">${t("roamerNote")}</div>
@@ -1772,6 +1897,7 @@
       }
       if (selectSetting === "regionScope") {
         settings.regionScope = event.target.value;
+        runtime.collectionQueueSignature = "";
         saveSettings();
       }
       const region = event.target.dataset.region;
@@ -1779,6 +1905,7 @@
         settings.customRegions = event.target.checked
           ? [...new Set([...settings.customRegions, region])]
           : settings.customRegions.filter((item) => item !== region);
+        runtime.collectionQueueSignature = "";
         saveSettings();
       }
       const duplicateRegion = event.target.dataset.duplicateRegion;
@@ -1893,14 +2020,36 @@
       .filter((id) => species(id))
       .filter((id) => !ROAMING_LEGENDARIES.includes(id))
       .filter((id) => !isCaught(save, id))
-      .filter((id) => collectionPlansForSpecies(save, id).length);
+      .filter((id) => collectionPlansForSpecies(save, id).length || potentialWildTarget(save, id));
     settings.manualTargets = [...new Set(ids)];
     if (input) input.value = manualTargetsInputValue();
     saveSettings();
     runtime.target = null;
     runtime.targetPlan = null;
+    runtime.collectionQueueSignature = "";
     renderManualTargetPreview();
     log(settings.manualTargets.length ? `手动优先目标：${settings.manualTargets.map((id) => species(id).n).join("、")}` : "已恢复自动缺失图鉴排序");
+  }
+
+  function renderCollectionQueue() {
+    const root = document.querySelector("#pca-collection-queue");
+    if (!root) return;
+    const automatic = runtime.collectionQueue
+      .filter((plan) => !settings.manualTargets.includes(plan.speciesId))
+      .slice(0, 3);
+    if (!automatic.length) {
+      const waiting = runtime.waitingPlan;
+      root.innerHTML = waiting
+        ? `<div class="pca-target warn"><span>${escapeHtml(t("waitingCondition"))}</span><small>${escapeHtml(`${species(waiting.speciesId)?.n || waiting.speciesId} · ${new Date(waiting.availableAt).toLocaleString()}`)}</small></div>`
+        : `<div class="pca-note">${escapeHtml(t("queueEmpty"))}</div>`;
+      return;
+    }
+    root.innerHTML = automatic.map((plan, index) => {
+      const condition = [plan.phase, plan.weather].filter(Boolean).join(" / ");
+      const state = `${plan.chapterName} · ${plan.zone}${condition ? ` · ${condition}` : ""}`;
+      const active = runtime.targetPlan?.speciesId === plan.speciesId ? " valid" : "";
+      return `<div class="pca-target${active}"><span>${index + 1}. #${escapeHtml(speciesDisplayNumber(plan.speciesId))} ${escapeHtml(species(plan.speciesId)?.n || plan.speciesId)}</span><small>${escapeHtml(state)}</small></div>`;
+    }).join("");
   }
 
   function renderStatus() {
@@ -1922,6 +2071,7 @@
     });
     const targetName = runtime.target === "roam:waiting"
       ? t("waitingRoamers")
+      : runtime.targetPlan?.moneyFarm ? t("moneyFarm")
       : runtime.targetPlan?.speciesId ? species(runtime.targetPlan.speciesId)?.n : runtime.targetPlan?.chapterName;
     panel.querySelectorAll('[data-status="target"]').forEach((node) => { node.textContent = targetName || "—"; });
     panel.querySelectorAll('[data-status="place"]').forEach((node) => { node.textContent = `${chapter(save?.adv?.chapter)?.name || "—"}${runtime.targetPlan?.zone ? ` / ${runtime.targetPlan.zone}` : ""}`; });
@@ -1941,6 +2091,7 @@
     panel.querySelectorAll('[data-status="team"]').forEach((node) => { node.textContent = runtime.teamStatus === "未生成" ? t("notGenerated") : runtime.teamStatus; });
     panel.querySelector("#pca-error").textContent = runtime.error ? `${runtime.error.phase}: ${runtime.error.observed}\n${t("suggestion")}: ${runtime.error.suggestion}` : `${t("noError")} · ${t("game")} ${gameBuild()} · ${t("data")} ${DATA.appBuild}`;
     renderRoamingPriority();
+    renderCollectionQueue();
   }
 
   function renderLog() {
