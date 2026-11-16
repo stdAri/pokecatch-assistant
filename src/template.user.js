@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.3.5
+// @version      0.4.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.3.5";
+  const VERSION = "0.4.0";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -51,6 +51,9 @@
       targetNote: "只会加入尚未捕获、且在所选范围内有野外地点的目标；按填写顺序优先。",
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
+      duplicateKeepTitle: "重复宝可梦保留", enableDuplicateKeeps: "全部开启", disableDuplicateKeeps: "全部关闭", cancelDuplicateKeeps: "取消批量操作",
+      duplicateKeepNote: "按家族保留一个额外基础形态；只处理当前可访问、可重复获取的非传说家族。异色与普通个体共用同一家族开关。重复宝可梦会少一次约3级的家族经验。",
+      duplicateKeepIdle: "尚未执行", duplicateKeepConfirmOn: "为当前可访问的所有家族开启“保留重复”？", duplicateKeepConfirmOff: "关闭当前可访问家族的“保留重复”？",
       berryTitle: "战斗增益果子（全部默认关闭）", reserve: "最低保留数量", berryNote: "右侧数字为最低保留量；普通与金色捕获果同时开启时优先金色。",
       notifications: "通知", sound: "页面提示音", desktop: "桌面通知", diagnostic: "诊断", noError: "无异常", copyDiagnostic: "复制诊断", logs: "日志",
       statusTitle: "当前任务状态", task: "任务", target: "目标", place: "位置", attempts: "尝试", buffs: "增益", fifthTeam: "第五队", idle: "空闲", notGenerated: "未生成",
@@ -72,6 +75,9 @@
       targetNote: "Only uncaught targets with a wild location in the selected scope are added, in the order entered.",
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
+      duplicateKeepTitle: "Keep duplicates", enableDuplicateKeeps: "Enable all", disableDuplicateKeeps: "Disable all", cancelDuplicateKeeps: "Cancel bulk action",
+      duplicateKeepNote: "Keeps one extra base form per family. Only currently accessible, repeatable non-Legendary families are processed; Shiny and regular Pokemon share the same family setting. One duplicate worth about three family levels is retained.",
+      duplicateKeepIdle: "Not run", duplicateKeepConfirmOn: "Enable Keep duplicates for every currently accessible family?", duplicateKeepConfirmOff: "Disable Keep duplicates for every currently accessible family?",
       berryTitle: "Battle berries (all off by default)", reserve: "Minimum reserve", berryNote: "The number on the right is the reserve. Golden Razz is preferred when both catch berries are enabled.",
       notifications: "Notifications", sound: "Page sound", desktop: "Desktop notifications", diagnostic: "Diagnostics", noError: "No errors", copyDiagnostic: "Copy diagnostics", logs: "Logs",
       statusTitle: "Current task", task: "Mode", target: "Target", place: "Location", attempts: "Attempts", buffs: "Buffs", fifthTeam: "Team 5", idle: "Idle", notGenerated: "Not generated",
@@ -125,6 +131,7 @@
     chapterReset: null,
     lastAutomatedActionAt: 0,
     panelResizeBound: false,
+    duplicateKeep: null,
   };
 
   let settings = loadSettings();
@@ -295,6 +302,10 @@
 
   function speciesDisplayNumber(id) {
     return species(id)?.d || String(id).padStart(3, "0");
+  }
+
+  function speciesFamilyHead(id) {
+    return Number(species(id)?.f || id);
   }
 
   function chapter(index) {
@@ -622,6 +633,98 @@
     }
     const final = readSave().team;
     if (desiredUids.some((uid) => !final.includes(uid))) throw new Error("第五队未能完整应用");
+  }
+
+  function duplicateKeepCandidates(save, enabled) {
+    const representatives = new Map();
+    for (const mon of save.mons || []) {
+      const meta = species(mon.id);
+      if (!meta || meta.g || meta.m) continue;
+      const family = speciesFamilyHead(mon.id);
+      if (Boolean(save.keepDup?.[family]) === enabled || representatives.has(family)) continue;
+      representatives.set(family, mon);
+    }
+    return [...representatives.entries()].map(([family, mon]) => ({ family, mon }));
+  }
+
+  function renderDuplicateKeepProgress() {
+    const root = document.querySelector("#pca-duplicate-keep-status");
+    if (!root) return;
+    const progress = runtime.duplicateKeep;
+    if (!progress) {
+      root.textContent = t("duplicateKeepIdle");
+      return;
+    }
+    root.textContent = language() === "en"
+      ? `${progress.done}/${progress.total} · changed ${progress.changed} · skipped ${progress.skipped}${progress.cancelled ? " · cancelled" : ""}`
+      : `${progress.done}/${progress.total} · 已更改${progress.changed} · 跳过${progress.skipped}${progress.cancelled ? " · 已取消" : ""}`;
+  }
+
+  async function setDuplicateKeepForMon(mon, enabled) {
+    await openScreen("team");
+    const quickPacing = { beforeMin: 250, beforeMax: 600, afterMin: 150, afterMax: 350 };
+    const search = document.querySelector("#pc-search");
+    let card = document.querySelector(`#team-slots [data-team-uid="${CSS.escape(mon.uid)}"]`);
+    if (!card && search) {
+      search.value = species(mon.id)?.n || "";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      await jitter(180, 420);
+      card = document.querySelector(`#pc-grid .pc-cell[data-uid="${CSS.escape(mon.uid)}"]`);
+    }
+    if (!card) return false;
+    await pacedClick(card, `${species(mon.id)?.n || mon.id}详情`, quickPacing);
+    const detail = await waitFor(() => document.querySelector(".dexcard.v2"), { label: "宝可梦详情" });
+    try {
+      const toggle = detail.querySelector(".keep-row");
+      if (!toggle) return false;
+      const current = toggle.getAttribute("aria-checked") === "true";
+      if (current === enabled) return "unchanged";
+      await pacedClick(toggle, t("duplicateKeepTitle"), quickPacing);
+      await waitFor(
+        () => detail.querySelector(".keep-row")?.getAttribute("aria-checked") === String(enabled),
+        { label: t("duplicateKeepTitle") },
+      );
+      return "changed";
+    } finally {
+      const close = detail.querySelector(".dc-x");
+      if (close) await pacedClick(close, language() === "en" ? "close details" : "关闭详情", quickPacing);
+    }
+  }
+
+  async function bulkSetDuplicateKeeps(enabled) {
+    if (runtime.duplicateKeep?.active) return;
+    if (!confirm(enabled ? t("duplicateKeepConfirmOn") : t("duplicateKeepConfirmOff"))) return;
+    await exclusive(t("duplicateKeepTitle"), async () => {
+      const candidates = duplicateKeepCandidates(readSave(), enabled);
+      runtime.duplicateKeep = { active: true, enabled, total: candidates.length, done: 0, changed: 0, skipped: 0, cancelled: false };
+      renderDuplicateKeepProgress();
+      try {
+        for (const { mon } of candidates) {
+          if (runtime.duplicateKeep.cancelled) break;
+          try {
+            const result = await setDuplicateKeepForMon(mon, enabled);
+            if (result === "changed") runtime.duplicateKeep.changed += 1;
+            else runtime.duplicateKeep.skipped += 1;
+          } catch (error) {
+            runtime.duplicateKeep.skipped += 1;
+            log(`${species(mon.id)?.n || mon.id}：${error.message}`);
+          }
+          runtime.duplicateKeep.done += 1;
+          renderDuplicateKeepProgress();
+        }
+      } finally {
+        const search = document.querySelector("#pc-search");
+        if (search?.value) {
+          search.value = "";
+          search.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        runtime.duplicateKeep.active = false;
+        renderDuplicateKeepProgress();
+      }
+      log(language() === "en"
+        ? `Keep duplicates bulk action: ${runtime.duplicateKeep.changed} changed, ${runtime.duplicateKeep.skipped} skipped`
+        : `批量保留重复：已更改${runtime.duplicateKeep.changed}，跳过${runtime.duplicateKeep.skipped}`);
+    });
   }
 
   function habitatForRoute(route) {
@@ -1438,6 +1541,10 @@
           <div class="pca-row"><select class="pca-select pca-grow" id="pca-copy-from">${[0,1,2,3,4].map((i)=>`<option value="${i}">${t("team")} ${i+1}</option>`).join("")}</select><span>→</span><select class="pca-select pca-grow" id="pca-copy-to">${[0,1,2,3,4].map((i)=>`<option value="${i}" ${i===4?"selected":""}>${t("team")} ${i+1}</option>`).join("")}</select><button class="pca-btn" data-act="copy">${t("copy")}</button></div>
           <button class="pca-btn" data-act="reteam">${t("regenerate")}</button>
           </div>
+          <div class="pca-card"><h4>${t("duplicateKeepTitle")}</h4>
+          <div class="pca-row pca-controls"><button class="pca-btn" data-act="dup-on">${t("enableDuplicateKeeps")}</button><button class="pca-btn" data-act="dup-off">${t("disableDuplicateKeeps")}</button><button class="pca-btn danger" data-act="dup-cancel">${t("cancelDuplicateKeeps")}</button></div>
+          <div id="pca-duplicate-keep-status" class="pca-note">${t("duplicateKeepIdle")}</div><div class="pca-note">${t("duplicateKeepNote")}</div>
+          </div>
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "berries" ? "active" : ""}" role="tabpanel" data-tabpanel="berries">
           <div class="pca-card"><h4>${t("berryTitle")}</h4><div class="pca-berries">
@@ -1476,6 +1583,9 @@
       else if (action === "stop") stopMode();
       else if (action === "copy") copyTeam();
       else if (action === "reteam") regenerateTeam();
+      else if (action === "dup-on") bulkSetDuplicateKeeps(true);
+      else if (action === "dup-off") bulkSetDuplicateKeeps(false);
+      else if (action === "dup-cancel" && runtime.duplicateKeep?.active) runtime.duplicateKeep.cancelled = true;
       else if (action === "targets") applyManualTargets();
       else if (action === "roam-up") moveRoamingPriority(Number(event.target.closest("[data-roamer]")?.dataset.roamer), -1);
       else if (action === "roam-down") moveRoamingPriority(Number(event.target.closest("[data-roamer]")?.dataset.roamer), 1);

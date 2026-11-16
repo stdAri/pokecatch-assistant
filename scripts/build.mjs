@@ -51,6 +51,7 @@ const habitats = evaluateLiteral(extractLiteral("a.HABITATS={", "{", "}"));
 const weather = evaluateLiteral(extractLiteral("WEATHER:{", "{", "}"));
 const roamingWeather = evaluateLiteral(extractLiteral("MIN_LEVEL:100,WEATHER:{", "{", "}"));
 const forms = evaluateLiteral(extractLiteral("a.FORMS=function(){const h=[", "[", "]"));
+const evolutions = evaluateLiteral(extractLiteral("a.EVOLUTIONS={", "{", "}"));
 const compactWeather = {
   slotMs: weather.SLOT_MS,
   chance: weather.CHANCE,
@@ -144,6 +145,7 @@ for (let index = 1; index < unownLetters.length; index += 1) {
 }
 
 const formIndexes = new Map();
+const formBases = new Map(forms.map((form) => [form.id, form.base]));
 for (const form of forms) {
   const base = compactSpecies[form.base];
   if (!base) continue;
@@ -162,6 +164,24 @@ for (const form of forms) {
     l: [...base.l, ...extraMoves.map((key) => [50, key])],
     d: `${form.base}-${suffix}`,
   };
+}
+
+const preEvolution = new Map();
+for (const [from, choices] of Object.entries(evolutions)) {
+  for (const choice of choices) if (!preEvolution.has(choice.to)) preEvolution.set(choice.to, Number(from));
+}
+const familyHead = (id) => {
+  let current = formBases.get(id) || id;
+  const seen = new Set();
+  while (preEvolution.has(current) && !seen.has(current)) {
+    seen.add(current);
+    current = formBases.get(preEvolution.get(current)) || preEvolution.get(current);
+  }
+  return current;
+};
+for (const [id, meta] of Object.entries(compactSpecies)) {
+  const head = familyHead(Number(id));
+  if (head !== Number(id)) meta.f = head;
 }
 
 const compactMoves = Object.fromEntries(

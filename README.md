@@ -3,7 +3,7 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.3.5-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
@@ -21,6 +21,7 @@
 - 手动目标支持游戏显示的特殊形态编号，例如未知图腾 `201-H` 和阿尔宙斯 `493-A`；
 - 刷完目标子区域本轮的全部有效野生节点后切章重置；
 - 第五队锁定、人工接管和任意队伍复制；队伍应用通过游戏原有拖拽交互完成；
+- 可批量开启、关闭或取消当前可访问、可重复获取的非传说家族“保留重复”；异色与普通个体共用家族设置，所有变更均通过游戏详情页开关完成；
 - 所有战斗增益果子按游戏原名显示效果，支持独立开关及最低保留量；包括使徘徊宝可梦停留30分钟的雾莲果；
 - 已启用的果子会按游戏时钟检测失效并自动续吃，即使当前没有运行推图或收集任务；
 - 助手界面支持简体中文和 English，可跟随游戏语言或在标题栏手动切换；

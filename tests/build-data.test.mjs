@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.3.5", () => {
-  assert.equal(packageJson.version, "0.3.5");
-  assert.ok(source.includes("// @version      0.3.5"));
-  assert.ok(source.includes('const VERSION = "0.3.5"'));
-  assert.ok(viteConfig.includes('version: "0.3.5"'));
+test("userscript and development metadata share version 0.4.0", () => {
+  assert.equal(packageJson.version, "0.4.0");
+  assert.ok(source.includes("// @version      0.4.0"));
+  assert.ok(source.includes('const VERSION = "0.4.0"'));
+  assert.ok(viteConfig.includes('version: "0.4.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -372,6 +372,26 @@ test("manual targets resolve visible alternate-form numbers", () => {
   assert.equal(resolveManualTarget("No.493-A"), 49301);
   assert.equal(resolveManualTarget("493A"), 49301);
   assert.equal(resolveManualTarget("未知图腾H"), 20107);
+});
+
+test("duplicate retention bulk controls group owned Pokemon by family", () => {
+  assert.ok(source.includes('data-act="dup-on"'));
+  assert.ok(source.includes('data-act="dup-off"'));
+  assert.ok(source.includes('data-act="dup-cancel"'));
+  assert.ok(source.includes('detail.querySelector(".keep-row")'));
+  assert.equal(data.species[2].f, 1);
+  const { species, speciesFamilyHead, duplicateKeepCandidates } = sourceFunctions(
+    ["species", "speciesFamilyHead", "duplicateKeepCandidates"],
+    { DATA: data },
+  );
+  assert.deepEqual(
+    Array.from(duplicateKeepCandidates({ mons: [{ uid: "a", id: 1 }, { uid: "b", id: 2 }, { uid: "c", id: 4 }], keepDup: {} }, true), (item) => item.family),
+    [1, 4],
+  );
+  assert.deepEqual(
+    Array.from(duplicateKeepCandidates({ mons: [{ uid: "a", id: 1 }, { uid: "c", id: 4 }], keepDup: { 1: 1 } }, false), (item) => item.family),
+    [1],
+  );
 });
 
 test("team automation uses the game's drag interaction instead of opening details", () => {
