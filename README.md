@@ -3,7 +3,7 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.5.3-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
@@ -18,6 +18,7 @@
 - 神兽候选由游戏 `roam.at` 实时列表驱动；失败后立即切章重置，目标消失后只确认一次捕获结果并重新规划，状态冲突时安全暂停；
 - 收集任务配队会提高当前等级权重，以应对 100 级徘徊神兽；推图仍优先长期培养价值；
 - 雷公、炎帝、水君的自动队伍会强优先选择 `Lv.90+` 宝可梦；不足六只时才按神兽专用评分选取低等级候补；
+- 培养页可按个体建立候选池；启用后自动配队只从已选个体中选择，并可按“当前形态种族值总和 × 异色加成 × 地下强化加成”设置最低综合能力值；候选不足六只时不会从池外补人；
 - 手动优先图鉴编号会即时显示对应宝可梦名称和可用状态；
 - 手动目标支持游戏显示的特殊形态编号，例如未知图腾 `201-H` 和阿尔宙斯 `493-A`；
 - 可识别并在条件满足后自动进入传说宝可梦特殊捕获地点，例如洛奇亚的漩涡列岛、凤王的铃铛塔；条件未满足时显示具体地点和缺少的前置条件；
@@ -29,7 +30,7 @@
 - 所有战斗增益果子按游戏原名显示效果，支持独立开关及最低保留量；包括使徘徊宝可梦停留30分钟的雾莲果；
 - 已启用的果子会按游戏时钟检测失效并自动续吃，即使当前没有运行推图或收集任务；
 - 助手界面支持简体中文和 English，可跟随游戏语言或在标题栏手动切换；
-- 推图、收集、阵容、果子、诊断五个功能标签页；浮动面板可拖动，并记忆位置和当前标签页；
+- 推图、收集、培养、阵容、果子、诊断六个功能标签页；状态栏嵌入游戏顶部，助手配置层可切换为浮动窗口，支持拖动、调整大小并记忆位置、尺寸和当前标签页；
 - 可折叠状态面板、日志、声音和桌面通知；
 - 自动点击、切章、换队、拖放和使用果子采用随机节流，避免短时间连续操作；
 - 游戏版本与关键 DOM 结构不匹配时安全暂停。
@@ -45,9 +46,9 @@
 1. 在 Edge 安装 Tampermonkey。
 2. 点击 [一键安装 PokeCatch 助手](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js)。
 3. 在 Tampermonkey 安装页面确认脚本名称与权限后保存。
-4. 刷新 Poke'Catch，右下角会出现“PokéCatch 助手”。
+4. 刷新 Poke'Catch，游戏顶部状态栏会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前已推送版本的固定安装地址：[安装 PokeCatch 助手 v0.5.3](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/d9e72beefaaf38522a178c24c12f47980b91a34e/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.5.3 提交，不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。远端 CI、正式存档实机验证、标签和 Release 状态以项目发布记录为准。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前已推送版本的固定安装地址：[安装 PokeCatch 助手 v0.8.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/6b2522ece1275bcf680e39f64447e5b8485998b0/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.8.0 提交，不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。远端 CI、正式存档实机验证、标签和 Release 状态以项目发布记录为准。
 
 如果浏览器没有自动打开 Tampermonkey 安装页，也可以打开 Tampermonkey 的“添加新脚本”，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 

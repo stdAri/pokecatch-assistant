@@ -55,6 +55,11 @@ test("userscript and development metadata share version 0.8.0", () => {
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
+  const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
+  const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
+  assert.ok(readme.includes("version-0.8.0-blue"));
+  assert.ok(readme.includes("安装 PokeCatch 助手 v0.8.0"));
+  assert.ok(changelog.includes("## 0.8.0"));
 });
 
 test("new regions accept missing presets and only recommend locally available Pokemon", () => {
