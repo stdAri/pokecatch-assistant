@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.4.0
+// @version      0.4.1
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.4.0";
+  const VERSION = "0.4.1";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -52,8 +52,8 @@
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
       duplicateKeepTitle: "重复宝可梦保留", enableDuplicateKeeps: "全部开启", disableDuplicateKeeps: "全部关闭", cancelDuplicateKeeps: "取消批量操作",
-      duplicateKeepNote: "按家族保留一个额外基础形态；只处理当前可访问、可重复获取的非传说家族。异色与普通个体共用同一家族开关。重复宝可梦会少一次约3级的家族经验。",
-      duplicateKeepIdle: "尚未执行", duplicateKeepConfirmOn: "为当前可访问的所有家族开启“保留重复”？", duplicateKeepConfirmOff: "关闭当前可访问家族的“保留重复”？",
+      duplicateKeepNote: "逐编号检查当前可访问、可重复获取的非传说宝可梦；已符合目标状态的编号会跳过。游戏实际按进化家族共享开关，异色与普通个体也共用设置。重复宝可梦会少一次约3级的家族经验。",
+      duplicateKeepIdle: "尚未执行", duplicateKeepConfirmOn: "逐编号检查并为当前可访问的宝可梦开启“保留重复”？", duplicateKeepConfirmOff: "逐编号检查并关闭当前可访问宝可梦的“保留重复”？",
       berryTitle: "战斗增益果子（全部默认关闭）", reserve: "最低保留数量", berryNote: "右侧数字为最低保留量；普通与金色捕获果同时开启时优先金色。",
       notifications: "通知", sound: "页面提示音", desktop: "桌面通知", diagnostic: "诊断", noError: "无异常", copyDiagnostic: "复制诊断", logs: "日志",
       statusTitle: "当前任务状态", task: "任务", target: "目标", place: "位置", attempts: "尝试", buffs: "增益", fifthTeam: "第五队", idle: "空闲", notGenerated: "未生成",
@@ -76,8 +76,8 @@
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
       duplicateKeepTitle: "Keep duplicates", enableDuplicateKeeps: "Enable all", disableDuplicateKeeps: "Disable all", cancelDuplicateKeeps: "Cancel bulk action",
-      duplicateKeepNote: "Keeps one extra base form per family. Only currently accessible, repeatable non-Legendary families are processed; Shiny and regular Pokemon share the same family setting. One duplicate worth about three family levels is retained.",
-      duplicateKeepIdle: "Not run", duplicateKeepConfirmOn: "Enable Keep duplicates for every currently accessible family?", duplicateKeepConfirmOff: "Disable Keep duplicates for every currently accessible family?",
+      duplicateKeepNote: "Checks each accessible, repeatable non-Legendary Pokédex number and skips entries already in the requested state. The game shares this setting across an evolution family and between Shiny and regular Pokemon. One duplicate worth about three family levels is retained.",
+      duplicateKeepIdle: "Not run", duplicateKeepConfirmOn: "Check every accessible Pokédex number and enable Keep duplicates?", duplicateKeepConfirmOff: "Check every accessible Pokédex number and disable Keep duplicates?",
       berryTitle: "Battle berries (all off by default)", reserve: "Minimum reserve", berryNote: "The number on the right is the reserve. Golden Razz is preferred when both catch berries are enabled.",
       notifications: "Notifications", sound: "Page sound", desktop: "Desktop notifications", diagnostic: "Diagnostics", noError: "No errors", copyDiagnostic: "Copy diagnostics", logs: "Logs",
       statusTitle: "Current task", task: "Mode", target: "Target", place: "Location", attempts: "Attempts", buffs: "Buffs", fifthTeam: "Team 5", idle: "Idle", notGenerated: "Not generated",
@@ -302,10 +302,6 @@
 
   function speciesDisplayNumber(id) {
     return species(id)?.d || String(id).padStart(3, "0");
-  }
-
-  function speciesFamilyHead(id) {
-    return Number(species(id)?.f || id);
   }
 
   function chapter(index) {
@@ -635,16 +631,15 @@
     if (desiredUids.some((uid) => !final.includes(uid))) throw new Error("第五队未能完整应用");
   }
 
-  function duplicateKeepCandidates(save, enabled) {
+  function duplicateKeepCandidates(save) {
     const representatives = new Map();
     for (const mon of save.mons || []) {
       const meta = species(mon.id);
       if (!meta || meta.g || meta.m) continue;
-      const family = speciesFamilyHead(mon.id);
-      if (Boolean(save.keepDup?.[family]) === enabled || representatives.has(family)) continue;
-      representatives.set(family, mon);
+      if (representatives.has(mon.id)) continue;
+      representatives.set(mon.id, mon);
     }
-    return [...representatives.entries()].map(([family, mon]) => ({ family, mon }));
+    return [...representatives.entries()].map(([id, mon]) => ({ id, mon }));
   }
 
   function renderDuplicateKeepProgress() {
@@ -695,7 +690,7 @@
     if (runtime.duplicateKeep?.active) return;
     if (!confirm(enabled ? t("duplicateKeepConfirmOn") : t("duplicateKeepConfirmOff"))) return;
     await exclusive(t("duplicateKeepTitle"), async () => {
-      const candidates = duplicateKeepCandidates(readSave(), enabled);
+      const candidates = duplicateKeepCandidates(readSave());
       runtime.duplicateKeep = { active: true, enabled, total: candidates.length, done: 0, changed: 0, skipped: 0, cancelled: false };
       renderDuplicateKeepProgress();
       try {
