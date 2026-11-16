@@ -4,7 +4,7 @@
 
 - 状态：已确认，可进入迭代开发
 - 首版目标：`v0.1.0 Beta`
-- 当前实现基线：`v0.4.4`（本地工作区已实现并验证，尚未提交、推送或发布）
+- 当前实现基线：`v0.4.4`（提交 `7737948 feat: schedule weather-limited collection` 已进入远端 `main`；尚未确认远端 CI，未创建对应标签或 Release）
 - 目标游戏：https://pokecatch-online.netlify.app/
 - 运行方式：Tampermonkey 用户脚本
 - 主要语言：简体中文

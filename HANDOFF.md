@@ -4,13 +4,14 @@
 
 - 本地路径：`/Users/young/Project/pokecatch-assistant`
 - 默认分支：`main`
-- 当前版本：`0.4.4`（本地工作区已实现并验证，尚未提交、推送或发布）
+- 当前版本：`0.4.4`（提交 `7737948 feat: schedule weather-limited collection` 已进入远端 `main`；尚未确认远端 CI，未创建对应标签或 Release）
 - 首次提交：`939123b feat: initial PokeCatch assistant`
 - GitHub 远端：`git@github.com:stdAri/pokecatch-assistant.git`
 - 许可证：MIT；生成文件包含第三方游戏兼容数据，项目不对 Pokémon 相关名称、素材或第三方数据主张权利。
 - `v0.1.0` 标签已存在于本地和远端；GitHub 上已核验 `PokeCatch Assistant v0.1.0 (Beta)` 预发布，发布时间为 2026-11-16 15:27（中国时间）。
-- 文档更新前核对：本地 `main` 与 `origin/main` 均指向 `0bd5c83 docs: pin v0.4.3 install fallback`；`v0.4.4` 为当前工作区未提交改动。
+- 文档更新前核对：本地 `main` 与 `origin/main` 均指向 `7737948f01d58fe20ccca0dd9e4cca89100ee134 feat: schedule weather-limited collection`。
 - `v0.4.1`–`v0.4.3` 的实现与固定安装说明已进入远端 `main`；没有据此确认新的 Git 标签或 GitHub Release。
+- `v0.4.4` 功能主体已进入远端 `main`；本地测试结果不等于远端 CI，且尚未创建 `v0.4.4` 标签或 GitHub Release。
 
 `v0.4.1`–`v0.4.3` 开发时均在本地通过 `npm test` 和 `npm run check`。这些结果不等于远端 CI；相关 CI 当时仍在运行，本文档不将其记为已通过。后续发布前仍需单独确认远端 CI 并人工检查发布差异。
 
@@ -213,7 +214,7 @@ node scripts/build.mjs \
 - `PokeCatch Assistant v0.1.0 (Beta)` GitHub 预发布已核验存在；
 - `v0.4.1`–`v0.4.3` 代码已进入远端 `main`，但 `CHANGELOG.md` 仍将这些版本标为未发布；
 - 没有确认 `v0.4.1`、`v0.4.2` 或 `v0.4.3` 的新标签或 GitHub Release；
-- `v0.4.4` 当前只存在于本地未提交工作区；没有确认远端 CI、Git 标签或 GitHub Release；
+- `v0.4.4` 功能主体已由提交 `7737948f01d58fe20ccca0dd9e4cca89100ee134` 推送至远端 `main`；没有确认远端 CI，也未创建对应 Git 标签或 GitHub Release；
 - 相关开发提交的本地测试通过，但当时仍运行中的远端 CI 未被记为通过，不能把本地测试等同于远端 CI。
 
 下一次发布前：确认目标版本与远端 CI，再创建对应标签和 Release；不要覆盖 `v0.1.0` 已发布历史。
