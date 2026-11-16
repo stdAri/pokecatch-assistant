@@ -95,6 +95,7 @@ const compactChapters = chapters.map((chapter, index) => {
         kind: step.kind,
         name: translate(step.name),
         sourceName: step.name,
+        habitat: step.habitat || null,
         bg: step.bg || null,
         indoor: step.indoor,
         weather: step.weather,

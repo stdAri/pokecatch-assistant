@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.3.4
+// @version      0.3.5
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.3.4";
+  const VERSION = "0.3.5";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -625,6 +625,7 @@
   }
 
   function habitatForRoute(route) {
+    if (route.habitat && DATA.habitats[route.habitat]) return DATA.habitats[route.habitat];
     const exact = `${route.sourceName}|${route.areas.join("+")}`;
     if (DATA.habitats[exact]) return DATA.habitats[exact];
     const match = Object.entries(DATA.habitats).find(([key]) => key.startsWith(`${route.sourceName}|`));

@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.3.4", () => {
-  assert.equal(packageJson.version, "0.3.4");
-  assert.ok(source.includes("// @version      0.3.4"));
-  assert.ok(source.includes('const VERSION = "0.3.4"'));
-  assert.ok(viteConfig.includes('version: "0.3.4"'));
+test("userscript and development metadata share version 0.3.5", () => {
+  assert.equal(packageJson.version, "0.3.5");
+  assert.ok(source.includes("// @version      0.3.5"));
+  assert.ok(source.includes('const VERSION = "0.3.5"'));
+  assert.ok(viteConfig.includes('version: "0.3.5"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -70,6 +70,14 @@ test("route and encounter data can locate Charmander on Route 3", () => {
     .find(({ route }) => route.name === "3号道路");
   assert.ok(route3, "missing Route 3");
   assert.ok(route3.route.areas.includes("kanto-route-3-area"));
+});
+
+test("routes with explicit habitat keys use their special encounter tables", () => {
+  const summit = data.chapters.flatMap((chapter) => chapter.routes).find((route) => route.sourceName === "Sommet");
+  assert.equal(summit.habitat, "k2:Sommet");
+  const { habitatForRoute, habitatWeights } = sourceFunctions(["habitatForRoute", "habitatWeights"], { DATA: data });
+  const habitat = habitatForRoute(summit);
+  assert.equal(habitatWeights(habitat, "night", null)[200], 12);
 });
 
 test("alternate forms use the game's visible Pokedex numbers", () => {
