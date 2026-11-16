@@ -3,7 +3,7 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.5.2-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.3-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
@@ -24,7 +24,7 @@
 - 刷完目标子区域本轮的全部有效野生节点后切章重置；
 - 第五队锁定、人工接管和任意队伍复制；队伍应用通过游戏原有拖拽交互完成；
 - 城都、丰缘、神奥、合众等独立队伍地区只使用当前一侧可用成员；不足六只时按实际人数配队，队伍复制会先打开游戏队伍页完成原生预设初始化；
-- 跨地区捕获会先切换到目标章节，再读取当地存档并使用当地成员配队；普通、特殊捕获和徘徊神兽均遵循这一顺序；
+- 跨地区捕获会先切换到目标章节所属地区，再选择目标章节，并读取当地存档、使用当地成员配队；普通、特殊捕获和徘徊神兽均遵循这一顺序；
 - 可按关都、城都、丰缘、神奥、合众多选范围，逐图鉴编号批量开启、关闭或取消当前可访问、可重复获取的非传说宝可梦“保留重复”；已符合目标状态的编号会跳过，游戏实际按进化家族共享设置；
 - 所有战斗增益果子按游戏原名显示效果，支持独立开关及最低保留量；包括使徘徊宝可梦停留30分钟的雾莲果；
 - 已启用的果子会按游戏时钟检测失效并自动续吃，即使当前没有运行推图或收集任务；
@@ -47,7 +47,7 @@
 3. 在 Tampermonkey 安装页面确认脚本名称与权限后保存。
 4. 刷新 Poke'Catch，右下角会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前已推送版本的固定安装地址：[安装 PokeCatch 助手 v0.5.2](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/9d34cc37a2b46abef24463db3db7c5f8a76f6a26/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.5.2 提交，不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。远端 CI、正式存档实机验证、标签和 Release 状态以项目发布记录为准。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前已推送版本的固定安装地址：[安装 PokeCatch 助手 v0.5.3](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/d9e72beefaaf38522a178c24c12f47980b91a34e/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.5.3 提交，不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。远端 CI、正式存档实机验证、标签和 Release 状态以项目发布记录为准。
 
 如果浏览器没有自动打开 Tampermonkey 安装页，也可以打开 Tampermonkey 的“添加新脚本”，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
