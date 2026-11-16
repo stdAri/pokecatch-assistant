@@ -33,11 +33,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.2.0", () => {
-  assert.equal(packageJson.version, "0.2.0");
-  assert.ok(source.includes("// @version      0.2.0"));
-  assert.ok(source.includes('const VERSION = "0.2.0"'));
-  assert.ok(viteConfig.includes('version: "0.2.0"'));
+test("userscript and development metadata share version 0.2.1", () => {
+  assert.equal(packageJson.version, "0.2.1");
+  assert.ok(source.includes("// @version      0.2.1"));
+  assert.ok(source.includes('const VERSION = "0.2.1"'));
+  assert.ok(viteConfig.includes('version: "0.2.1"'));
 });
 
 test("Johto finale contains Red's actual six Pokemon", () => {
@@ -153,9 +153,22 @@ test("collection team recommendations give current level a higher weight", () =>
   assert.ok(source.includes("const DEFAULT_LEVEL_WEIGHT = 0.22;"));
   assert.ok(source.includes("const COLLECTION_LEVEL_WEIGHT = 1.2;"));
   assert.ok(source.includes("Math.min(100, mon.level) * levelWeight"));
-  assert.ok(source.includes("recommendTeam(save, [roamer.id], { levelWeight: COLLECTION_LEVEL_WEIGHT })"));
+  assert.ok(source.includes("recommendRoamingTeam(save, roamer.id)"));
   assert.ok(source.includes("recommendTeam(save, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT })"));
   assert.ok(source.includes('runtime.target?.startsWith("push:") ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT'));
+});
+
+test("roaming legendary teams strongly prioritize level 90 or above with fallback", () => {
+  const roamingLevelPriorityScore = sourceFunction("roamingLevelPriorityScore");
+  assert.equal(roamingLevelPriorityScore(100, 90), 1_040);
+  assert.equal(roamingLevelPriorityScore(90, 90), 1_000);
+  assert.equal(roamingLevelPriorityScore(89, 90), -20);
+  assert.equal(roamingLevelPriorityScore(70, 90), -400);
+  assert.equal(roamingLevelPriorityScore(70), 0);
+  assert.ok(source.includes("const ROAMING_PREFERRED_LEVEL = 90;"));
+  assert.ok(source.includes("preferredLevel: ROAMING_PREFERRED_LEVEL"));
+  assert.ok(source.includes("recommendRoamingTeam(save, roamer.id)"));
+  assert.ok(source.includes("recommendRoamingTeam(save, runtime.targetPlan.speciesId)"));
 });
 
 test("berry controls use in-game names followed by their effects", () => {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.2.0
+// @version      0.2.1
 // @description  推图、缺失图鉴、徘徊神兽、第五队和果子自动化。只读取游戏状态并通过正常界面点击操作。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -19,10 +19,11 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.2.0";
+  const VERSION = "0.2.1";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
+  const ROAMING_PREFERRED_LEVEL = 90;
 
   const BERRIES = {
     "razz-berry": { family: "capture", label: "蔓莓果（捕获率 ×1.25）" },
@@ -261,7 +262,15 @@
     return enemyIds.map((id) => species(id)).filter(Boolean);
   }
 
-  function scoreCandidate(mon, enemies, continuitySet, selected, levelWeight = DEFAULT_LEVEL_WEIGHT) {
+  function roamingLevelPriorityScore(level, preferredLevel = null) {
+    if (!preferredLevel) return 0;
+    const normalized = Number(level) || 0;
+    return normalized >= preferredLevel
+      ? 1_000 + (normalized - preferredLevel) * 4
+      : -(preferredLevel - normalized) * 20;
+  }
+
+  function scoreCandidate(mon, enemies, continuitySet, selected, levelWeight = DEFAULT_LEVEL_WEIGHT, preferredLevel = null) {
     const meta = species(mon.id);
     if (!meta) return { score: -Infinity, reason: "缺少资料" };
     const stats = meta.s;
@@ -285,14 +294,20 @@
     const samePrimary = selected.filter((item) => species(item.id)?.t?.[0] === meta.t[0]).length;
     const continuity = continuitySet.has(mon.uid) ? 18 : 0;
     const levelContribution = Math.min(100, mon.level) * levelWeight;
-    const score = bst * 0.21 + offense * 0.82 + defense * 34 + stats[5] * 0.08 + levelContribution + continuity - samePrimary * 16;
+    const preferredLevelScore = roamingLevelPriorityScore(mon.level, preferredLevel);
+    const score = bst * 0.21 + offense * 0.82 + defense * 34 + stats[5] * 0.08
+      + levelContribution + preferredLevelScore + continuity - samePrimary * 16;
     return {
       score,
       reason: `能力${bst} · 克制${offense.toFixed(0)} · 防守${defense.toFixed(2)} · Lv.${mon.level}`,
     };
   }
 
-  function recommendTeam(save, enemyIds, { excludedSignatures = new Set(), levelWeight = DEFAULT_LEVEL_WEIGHT } = {}) {
+  function recommendTeam(save, enemyIds, {
+    excludedSignatures = new Set(),
+    levelWeight = DEFAULT_LEVEL_WEIGHT,
+    preferredLevel = null,
+  } = {}) {
     const enemies = enemyProfiles(enemyIds);
     const currentFive = new Set(save.teamSets?.list?.[4] || []);
     const candidates = save.mons.filter((mon) => mon?.uid && mon.level > 0);
@@ -301,7 +316,7 @@
     while (selected.length < 6 && selected.length < candidates.length) {
       const ranked = candidates
         .filter((mon) => !selected.some((item) => item.uid === mon.uid))
-        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight) }))
+        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel) }))
         .sort((a, b) => b.score - a.score);
       const choice = ranked[0];
       if (!choice) break;
@@ -314,11 +329,19 @@
       const last = selected.pop();
       const replacement = candidates
         .filter((mon) => !selected.some((item) => item.uid === mon.uid) && mon.uid !== last.uid)
-        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight) }))
+        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel) }))
         .sort((a, b) => b.score - a.score)[0];
       if (replacement) selected.push(replacement.mon);
     }
     return { mons: selected, details, enemyIds, signature: selected.map((mon) => mon.uid).sort().join("|") };
+  }
+
+  function recommendRoamingTeam(save, enemyId) {
+    const plan = recommendTeam(save, [enemyId], {
+      levelWeight: COLLECTION_LEVEL_WEIGHT,
+      preferredLevel: ROAMING_PREFERRED_LEVEL,
+    });
+    return plan;
   }
 
   function targetEnemyIdsForChapter(chapterIndex) {
@@ -838,7 +861,7 @@
       runtime.userTeamOverride = false;
       runtime.attempts = 0;
       runtime.lastRoamTries[roamer.id] = tries;
-      const plan = recommendTeam(save, [roamer.id], { levelWeight: COLLECTION_LEVEL_WEIGHT });
+      const plan = recommendRoamingTeam(save, roamer.id);
       await exclusive("配置神兽阵容", async () => {
         await applyRecommendedTeam(plan, species(roamer.id)?.n || String(roamer.id));
         if (readSave().adv.chapter !== roamer.chapter) await switchChapter(roamer.chapter);
@@ -1337,7 +1360,9 @@
       ? targetEnemyIdsForChapter(save.adv.chapter)
       : [runtime.targetPlan.speciesId].filter(Boolean);
     const levelWeight = runtime.target?.startsWith("push:") ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT;
-    const plan = recommendTeam(save, enemyIds, { levelWeight });
+    const plan = runtime.targetPlan.roaming
+      ? recommendRoamingTeam(save, runtime.targetPlan.speciesId)
+      : recommendTeam(save, enemyIds, { levelWeight });
     await exclusive("手动重新生成阵容", () => applyRecommendedTeam(plan, "用户要求重新生成"));
   }
 

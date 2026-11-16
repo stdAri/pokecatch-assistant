@@ -3,7 +3,7 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.1-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
@@ -16,6 +16,7 @@
 - 普通野外目标与徘徊神兽分区设置，神兽优先级可直接上移、下移；
 - 神兽候选由游戏 `roam.at` 实时列表驱动；失败后立即切章重置，目标消失后只确认一次捕获结果并重新规划，状态冲突时安全暂停；
 - 收集任务配队会提高当前等级权重，以应对 100 级徘徊神兽；推图仍优先长期培养价值；
+- 雷公、炎帝、水君的自动队伍会强优先选择 `Lv.90+` 宝可梦；不足六只时才按神兽专用评分选取低等级候补；
 - 手动优先图鉴编号会即时显示对应宝可梦名称和可用状态；
 - 刷完目标子区域本轮的全部有效野生节点后切章重置；
 - 第五队锁定、人工接管和任意队伍复制；队伍应用通过游戏原有拖拽交互完成；
