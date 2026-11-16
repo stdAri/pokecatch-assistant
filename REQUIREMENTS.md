@@ -4,7 +4,7 @@
 
 - 状态：已确认，可进入迭代开发
 - 首版目标：`v0.1.0 Beta`
-- 当前本地实现基线：`v0.4.5`（新地区/独立地区队伍兼容修复尚未提交、推送；远端 `main` 仍为 `v0.4.4` 的 `7737948 feat: schedule weather-limited collection`；未确认远端 CI，未创建 `v0.4.5` 标签或 Release）
+- 当前实现基线：`v0.4.5`（提交 `d2b35bac5b92595c5a9dcf14fc3cf4e38b655533 fix: support sparse teams in new regions` 已进入远端 `main`；尚未确认远端 CI，未创建 `v0.4.5` 标签或 Release）
 - 目标游戏：https://pokecatch-online.netlify.app/
 - 运行方式：Tampermonkey 用户脚本
 - 主要语言：简体中文
