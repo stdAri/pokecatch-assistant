@@ -2,6 +2,9 @@
 
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
+[![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](CHANGELOG.md)
+
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
 当前版本实现：
@@ -23,9 +26,11 @@
 ## 安装
 
 1. 在 Edge 安装 Tampermonkey。
-2. 打开 Tampermonkey 的“添加新脚本”。
-3. 将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
-4. 刷新 PokeCatch，右下角会出现“PokéCatch 助手”。
+2. 点击 [一键安装 PokeCatch 助手](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js)。
+3. 在 Tampermonkey 安装页面确认脚本名称与权限后保存。
+4. 刷新 Poke'Catch，右下角会出现“PokéCatch 助手”。
+
+如果浏览器没有自动打开 Tampermonkey 安装页，也可以打开 Tampermonkey 的“添加新脚本”，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
 首次使用建议先保持所有果子开关关闭，确认推图或收集路线符合预期后再逐项开启。
 
@@ -41,10 +46,33 @@ npm run check
 
 游戏前端版本变化后，需要重新下载最新的 `app.<hash>.js` 和 `lang-zh-Hans.<hash>.js`，再把新路径传给 `scripts/build.mjs`。版本不一致时，已安装脚本会停止自动操作并给出诊断。
 
+### Edge + Tampermonkey 本地开发
+
+项目使用 `vite-plugin-monkey` 提供用户脚本开发模式：
+
+```bash
+npm install
+npm run dev
+```
+
+首次运行时，Edge 会打开名称以“开发：”开头的用户脚本安装页；安装一次后保持开发服务运行。修改 `src/template.user.js` 并保存，游戏页会自动加载最新代码。正式安装包仍由 `npm run build` 生成到 `dist/pokecatch-assistant.user.js`，不会与开发脚本混淆。
+
 ## 隐私与问题反馈
 
 助手不上传存档或令牌。反馈问题时只需提供面板生成的诊断内容，参见 [SECURITY.md](SECURITY.md) 和 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
+- [报告 Bug](https://github.com/stdAri/pokecatch-assistant/issues/new?template=bug_report.yml)
+- [提出功能建议](https://github.com/stdAri/pokecatch-assistant/issues/new?template=feature_request.yml)
+- [询问使用问题](https://github.com/stdAri/pokecatch-assistant/issues/new?template=question.yml)
+
 ## 许可证状态
 
-在公开发布前仍需由维护者确定代码许可证。生成文件包含从当前游戏前端整理出的兼容数据，不应被理解为对 Pokémon 相关素材、名称或游戏数据主张权利。
+维护者尚未授予代码复制、修改或再发布许可；在许可证确定前保留所有权利。生成文件包含从当前游戏前端整理出的兼容数据，不应被理解为对 Pokémon 相关素材、名称或游戏数据主张权利。
+
+## English
+
+PokeCatch Assistant is an experimental, unofficial Tampermonkey userscript for [Poke'Catch](https://pokecatch-online.netlify.app/). It automates story progression, team-5 planning, missing-Pokédex collection, roaming-legendary tracking, and optional berry usage through the game's normal page controls.
+
+The script reads the local `gachamon-save-v1` state but does not write to it, alter randomness, forge capture results, access authentication tokens, or call cloud-save APIs. It pauses when the supported game build or critical page structure no longer matches.
+
+Install with Tampermonkey: [open the userscript](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js), review its permissions, and confirm installation. The interface is currently in Simplified Chinese. This project is not affiliated with the Poke'Catch authors, Nintendo, Game Freak, Creatures, or The Pokémon Company.

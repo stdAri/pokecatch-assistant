@@ -1,0 +1,64 @@
+name: Bug 报告
+description: 报告可复现的异常行为
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: 请勿提交登录令牌、完整存档、云端账号信息或其他隐私数据。
+  - type: input
+    id: assistant-version
+    attributes:
+      label: 助手版本
+      placeholder: 例如 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: game-build
+    attributes:
+      label: Poke'Catch 前端版本
+      description: 面板诊断中的 app.<hash>.js 版本
+      placeholder: 例如 app.c0081498f2.js
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: 实际现象
+      description: 发生了什么？
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开……
+        2. 选择……
+        3. 看到……
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 面板诊断
+      description: 粘贴“复制诊断”产生的内容；提交前请检查并删除隐私信息。
+      render: text
+  - type: dropdown
+    id: browser
+    attributes:
+      label: 浏览器
+      options:
+        - Microsoft Edge
+        - Google Chrome
+        - Firefox
+        - 其他
+    validations:
+      required: true

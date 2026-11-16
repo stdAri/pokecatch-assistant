@@ -33,6 +33,8 @@
 
   const DEFAULT_SETTINGS = {
     collapsed: false,
+    activeTab: "push",
+    panelPosition: null,
     lockTeam5: false,
     desktopNotifications: false,
     soundNotifications: true,
@@ -822,10 +824,12 @@
   function renderPanel() {
     const style = document.createElement("style");
     style.textContent = `
-      #${PANEL_ID}{position:fixed;right:14px;bottom:14px;width:360px;max-height:82vh;z-index:2147483646;color:#eef2ff;background:#151827;border:1px solid #46506c;border-radius:14px;box-shadow:0 14px 42px #0009;font:13px/1.45 system-ui,-apple-system,"PingFang SC",sans-serif;overflow:hidden}
+      #${PANEL_ID}{position:fixed;right:14px;bottom:14px;width:min(360px,calc(100vw - 28px));max-height:82vh;z-index:2147483646;color:#eef2ff;background:#151827;border:1px solid #46506c;border-radius:14px;box-shadow:0 14px 42px #0009;font:13px/1.45 system-ui,-apple-system,"PingFang SC",sans-serif;overflow:hidden}
       #${PANEL_ID} *{box-sizing:border-box}#${PANEL_ID} button,#${PANEL_ID} select,#${PANEL_ID} input{font:inherit}
-      .pca-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#20253a;border-bottom:1px solid #343b56}.pca-head b{flex:1}.pca-ver{color:#8ea0ca;font-size:11px}
-      .pca-body{padding:10px 12px;overflow:auto;max-height:calc(82vh - 46px)}#${PANEL_ID}.collapsed .pca-body{display:none}#${PANEL_ID}.collapsed{width:245px}
+      .pca-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#20253a;border-bottom:1px solid #343b56;cursor:move;touch-action:none;user-select:none}.pca-head b{flex:1}.pca-head button{cursor:pointer}.pca-ver{color:#8ea0ca;font-size:11px}
+      .pca-body{overflow:auto;max-height:calc(82vh - 46px)}#${PANEL_ID}.collapsed .pca-body{display:none}#${PANEL_ID}.collapsed{width:min(245px,calc(100vw - 28px))}
+      .pca-tabs{display:flex;overflow-x:auto;background:#181c2c;border-bottom:1px solid #343b56;padding:0 6px}.pca-tab{flex:0 0 auto;border:0;border-bottom:2px solid transparent;background:transparent;color:#94a3c8;padding:9px 8px;cursor:pointer}.pca-tab:hover{color:#dbe5ff}.pca-tab.active{color:#fff;border-bottom-color:#6f9cff;background:#20263a}
+      .pca-tabpanel{display:none;padding:10px 12px}.pca-tabpanel.active{display:block}
       .pca-row{display:flex;gap:7px;align-items:center;margin:7px 0}.pca-row>*{min-width:0}.pca-grow{flex:1}
       .pca-btn{border:1px solid #536080;background:#2b3350;color:#fff;border-radius:8px;padding:6px 9px;cursor:pointer}.pca-btn:hover{background:#3a466c}.pca-btn.primary{background:#3668d8;border-color:#5d87e4}.pca-btn.danger{background:#7b2f3c;border-color:#a44756}.pca-btn:disabled{opacity:.5;cursor:not-allowed}
       .pca-card{background:#1d2235;border:1px solid #323a55;border-radius:10px;padding:8px 9px;margin:8px 0}.pca-card h4{margin:0 0 6px;font-size:13px;color:#a9b9e4}.pca-kv{display:grid;grid-template-columns:72px 1fr;gap:4px 8px}.pca-kv span:nth-child(odd){color:#8fa0c6}.pca-status.run{color:#7ee787}.pca-status.pause{color:#f2cc60}.pca-status.err{color:#ff7b72}
@@ -840,33 +844,53 @@
     panel.innerHTML = `
       <div class="pca-head"><b>PokéCatch 助手</b><span class="pca-ver">v${VERSION}</span><button class="pca-btn" data-act="collapse">${settings.collapsed ? "展开" : "收起"}</button></div>
       <div class="pca-body">
-        <div class="pca-row"><button class="pca-btn primary pca-grow" data-act="push">开始推图</button><button class="pca-btn primary pca-grow" data-act="collect">全图鉴收集</button></div>
-        <div class="pca-row"><button class="pca-btn pca-grow" data-act="pause">暂停/继续</button><button class="pca-btn danger pca-grow" data-act="stop">停止</button></div>
-        <div class="pca-card"><h4>状态</h4><div class="pca-kv">
-          <span>任务</span><b id="pca-mode">空闲</b><span>目标</span><b id="pca-target">—</b><span>位置</span><b id="pca-place">—</b><span>尝试</span><b id="pca-attempts">0</b><span>增益</span><b id="pca-buffs">—</b><span>第五队</span><b id="pca-team" class="pca-team">未生成</b>
-        </div></div>
-        <div class="pca-card"><h4>阵容</h4>
+        <div class="pca-tabs" role="tablist" aria-label="助手功能">
+          ${[["push","推图"],["collect","全图鉴"],["team","阵容"],["berries","果子"],["diagnostics","诊断"]].map(([key,label]) => `<button class="pca-tab ${settings.activeTab === key ? "active" : ""}" type="button" role="tab" aria-selected="${settings.activeTab === key}" data-tab="${key}">${label}</button>`).join("")}
+        </div>
+        <div class="pca-tabpanel ${settings.activeTab === "push" ? "active" : ""}" role="tabpanel" data-tabpanel="push">
+          <div class="pca-row"><button class="pca-btn primary pca-grow" data-act="push">开始推图</button><button class="pca-btn pca-grow" data-act="pause">暂停/继续</button><button class="pca-btn danger" data-act="stop">停止</button></div>
+          <div class="pca-note">从当前地区的剧情前沿持续推进；推图期间不会追踪神兽。</div>
+          ${statusCardHtml()}
+        </div>
+        <div class="pca-tabpanel ${settings.activeTab === "collect" ? "active" : ""}" role="tabpanel" data-tabpanel="collect">
+          <div class="pca-row"><button class="pca-btn primary pca-grow" data-act="collect">开始全图鉴收集</button><button class="pca-btn pca-grow" data-act="pause">暂停/继续</button><button class="pca-btn danger" data-act="stop">停止</button></div>
+          ${statusCardHtml()}
+          <div class="pca-card"><h4>收集范围与优先级</h4>
+            <div class="pca-row"><span>地区</span><select class="pca-select pca-grow" data-select-setting="regionScope"><option value="current" ${settings.regionScope === "current" ? "selected" : ""}>当前地区</option><option value="all" ${settings.regionScope === "all" ? "selected" : ""}>所有已解锁地区</option><option value="custom" ${settings.regionScope === "custom" ? "selected" : ""}>自定义地区</option></select></div>
+            <div class="pca-row pca-note">${[["kanto","关都"],["johto","城都"],["hoenn","丰缘"],["sinnoh","神奥"],["unova","合众"]].map(([key,label])=>`<label><input type="checkbox" data-region="${key}" ${settings.customRegions.includes(key)?"checked":""}>${label}</label>`).join(" ")}</div>
+            <div class="pca-row"><span>神兽</span><select class="pca-select pca-grow" data-select-setting="roamingOrder"><option value="243,244,245" ${settings.roamingPriority.join() === "243,244,245" ? "selected" : ""}>雷公 → 炎帝 → 水君</option><option value="245,243,244" ${settings.roamingPriority.join() === "245,243,244" ? "selected" : ""}>水君 → 雷公 → 炎帝</option><option value="244,245,243" ${settings.roamingPriority.join() === "244,245,243" ? "selected" : ""}>炎帝 → 水君 → 雷公</option></select></div>
+            <div class="pca-row"><input class="pca-select pca-grow" id="pca-manual-targets" value="${settings.manualTargets.join(",")}" placeholder="手动优先图鉴编号，如 214,155"><button class="pca-btn" data-act="targets">应用</button></div>
+            <div class="pca-note">手动列表只接受尚未捕获且可在野外获得的目标；按填写顺序优先。</div>
+          </div>
+        </div>
+        <div class="pca-tabpanel ${settings.activeTab === "team" ? "active" : ""}" role="tabpanel" data-tabpanel="team">
+          <div class="pca-card"><h4>阵容与队伍复制</h4>
           <label class="pca-row"><input type="checkbox" data-setting="lockTeam5" ${settings.lockTeam5 ? "checked" : ""}>锁定第五队，不自动覆盖</label>
           <div class="pca-row"><select class="pca-select pca-grow" id="pca-copy-from">${[0,1,2,3,4].map((i)=>`<option value="${i}">队伍${i+1}</option>`).join("")}</select><span>→</span><select class="pca-select pca-grow" id="pca-copy-to">${[0,1,2,3,4].map((i)=>`<option value="${i}" ${i===4?"selected":""}>队伍${i+1}</option>`).join("")}</select><button class="pca-btn" data-act="copy">复制</button></div>
           <button class="pca-btn" data-act="reteam">重新生成当前目标阵容</button>
+          </div>
         </div>
-        <div class="pca-card"><h4>收集范围与优先级</h4>
-          <div class="pca-row"><span>地区</span><select class="pca-select pca-grow" data-select-setting="regionScope"><option value="current" ${settings.regionScope === "current" ? "selected" : ""}>当前地区</option><option value="all" ${settings.regionScope === "all" ? "selected" : ""}>所有已解锁地区</option><option value="custom" ${settings.regionScope === "custom" ? "selected" : ""}>自定义地区</option></select></div>
-          <div class="pca-row pca-note">${[["kanto","关都"],["johto","城都"],["hoenn","丰缘"],["sinnoh","神奥"],["unova","合众"]].map(([key,label])=>`<label><input type="checkbox" data-region="${key}" ${settings.customRegions.includes(key)?"checked":""}>${label}</label>`).join(" ")}</div>
-          <div class="pca-row"><span>神兽</span><select class="pca-select pca-grow" data-select-setting="roamingOrder"><option value="243,244,245" ${settings.roamingPriority.join() === "243,244,245" ? "selected" : ""}>雷公 → 炎帝 → 水君</option><option value="245,243,244" ${settings.roamingPriority.join() === "245,243,244" ? "selected" : ""}>水君 → 雷公 → 炎帝</option><option value="244,245,243" ${settings.roamingPriority.join() === "244,245,243" ? "selected" : ""}>炎帝 → 水君 → 雷公</option></select></div>
-          <div class="pca-row"><input class="pca-select pca-grow" id="pca-manual-targets" value="${settings.manualTargets.join(",")}" placeholder="手动优先图鉴编号，如 214,155"><button class="pca-btn" data-act="targets">应用</button></div>
-          <div class="pca-note">手动列表只接受尚未捕获且可在野外获得的目标；按填写顺序优先。</div>
-        </div>
-        <div class="pca-card"><h4>战斗增益果子（全部默认关闭）</h4><div class="pca-berries">
+        <div class="pca-tabpanel ${settings.activeTab === "berries" ? "active" : ""}" role="tabpanel" data-tabpanel="berries">
+          <div class="pca-card"><h4>战斗增益果子（全部默认关闭）</h4><div class="pca-berries">
           ${Object.entries(BERRIES).map(([key, info]) => `<label class="pca-berry"><input type="checkbox" data-berry="${key}" ${settings.berries[key]?.enabled ? "checked" : ""}>${info.label}</label><input type="number" min="0" title="最低保留数量" data-reserve="${key}" value="${settings.berries[key]?.reserve || 0}">`).join("")}
-        </div><div class="pca-note">右侧数字为最低保留量；普通与金色捕获果同时开启时优先金色。</div></div>
-        <div class="pca-card"><h4>通知</h4><label class="pca-row"><input type="checkbox" data-setting="soundNotifications" ${settings.soundNotifications ? "checked" : ""}>页面提示音</label><label class="pca-row"><input type="checkbox" data-setting="desktopNotifications" ${settings.desktopNotifications ? "checked" : ""}>桌面通知</label></div>
-        <div class="pca-card"><h4>诊断</h4><div id="pca-error" class="pca-note">无异常</div><div class="pca-row"><button class="pca-btn" data-act="copydiag">复制诊断</button></div></div>
-        <div class="pca-card"><h4>日志</h4><div id="pca-log" class="pca-log"></div></div>
+          </div><div class="pca-note">右侧数字为最低保留量；普通与金色捕获果同时开启时优先金色。</div></div>
+        </div>
+        <div class="pca-tabpanel ${settings.activeTab === "diagnostics" ? "active" : ""}" role="tabpanel" data-tabpanel="diagnostics">
+          <div class="pca-card"><h4>通知</h4><label class="pca-row"><input type="checkbox" data-setting="soundNotifications" ${settings.soundNotifications ? "checked" : ""}>页面提示音</label><label class="pca-row"><input type="checkbox" data-setting="desktopNotifications" ${settings.desktopNotifications ? "checked" : ""}>桌面通知</label></div>
+          <div class="pca-card"><h4>诊断</h4><div id="pca-error" class="pca-note">无异常</div><div class="pca-row"><button class="pca-btn" data-act="copydiag">复制诊断</button></div></div>
+          <div class="pca-card"><h4>日志</h4><div id="pca-log" class="pca-log"></div></div>
+        </div>
       </div>`;
     document.body.append(panel);
+    applyPanelPosition(panel);
+    enablePanelDragging(panel);
 
     panel.addEventListener("click", (event) => {
+      const tab = event.target.closest("[data-tab]")?.dataset.tab;
+      if (tab) {
+        selectPanelTab(panel, tab);
+        return;
+      }
       const action = event.target.closest("[data-act]")?.dataset.act;
       if (!action) return;
       if (action === "collapse") {
@@ -874,6 +898,7 @@
         saveSettings();
         panel.classList.toggle("collapsed", settings.collapsed);
         event.target.textContent = settings.collapsed ? "展开" : "收起";
+        requestAnimationFrame(() => keepPanelInViewport(panel));
       } else if (action === "push") startMode("push");
       else if (action === "collect") startMode("collect");
       else if (action === "pause") pauseMode();
@@ -916,8 +941,79 @@
         saveSettings();
       }
     });
+    window.addEventListener("resize", () => keepPanelInViewport(panel));
     renderStatus();
     renderLog();
+  }
+
+  function statusCardHtml() {
+    return `<div class="pca-card"><h4>当前任务状态</h4><div class="pca-kv">
+      <span>任务</span><b data-status="mode">空闲</b><span>目标</span><b data-status="target">—</b><span>位置</span><b data-status="place">—</b><span>尝试</span><b data-status="attempts">0</b><span>增益</span><b data-status="buffs">—</b><span>第五队</span><b data-status="team" class="pca-team">未生成</b>
+    </div></div>`;
+  }
+
+  function selectPanelTab(panel, tab) {
+    const allowed = new Set(["push", "collect", "team", "berries", "diagnostics"]);
+    if (!allowed.has(tab)) return;
+    settings.activeTab = tab;
+    saveSettings();
+    panel.querySelectorAll("[data-tab]").forEach((button) => {
+      const active = button.dataset.tab === tab;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
+    panel.querySelectorAll("[data-tabpanel]").forEach((tabpanel) => tabpanel.classList.toggle("active", tabpanel.dataset.tabpanel === tab));
+  }
+
+  function applyPanelPosition(panel) {
+    if (!settings.panelPosition) return;
+    panel.style.left = `${settings.panelPosition.left}px`;
+    panel.style.top = `${settings.panelPosition.top}px`;
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+    keepPanelInViewport(panel);
+  }
+
+  function keepPanelInViewport(panel) {
+    if (!panel.style.left && !panel.style.top) return;
+    const rect = panel.getBoundingClientRect();
+    const left = Math.max(0, Math.min(rect.left, window.innerWidth - rect.width));
+    const top = Math.max(0, Math.min(rect.top, window.innerHeight - Math.min(rect.height, window.innerHeight)));
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+    settings.panelPosition = { left: Math.round(left), top: Math.round(top) };
+    saveSettings();
+  }
+
+  function enablePanelDragging(panel) {
+    const handle = panel.querySelector(".pca-head");
+    let drag = null;
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || event.target.closest("button")) return;
+      const rect = panel.getBoundingClientRect();
+      drag = { pointerId: event.pointerId, dx: event.clientX - rect.left, dy: event.clientY - rect.top };
+      panel.style.left = `${rect.left}px`;
+      panel.style.top = `${rect.top}px`;
+      panel.style.right = "auto";
+      panel.style.bottom = "auto";
+      handle.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    handle.addEventListener("pointermove", (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const left = Math.max(0, Math.min(event.clientX - drag.dx, window.innerWidth - panel.offsetWidth));
+      const top = Math.max(0, Math.min(event.clientY - drag.dy, window.innerHeight - Math.min(panel.offsetHeight, window.innerHeight)));
+      panel.style.left = `${left}px`;
+      panel.style.top = `${top}px`;
+    });
+    const finish = (event) => {
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      drag = null;
+      if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+      keepPanelInViewport(panel);
+    };
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
   }
 
   async function regenerateTeam() {
@@ -950,12 +1046,14 @@
     let save = null;
     try { save = readSave(); } catch { /* ignore */ }
     const modeLabel = runtime.mode === "push" ? "推图" : runtime.mode === "collect" ? "全图鉴收集" : "空闲";
-    const mode = panel.querySelector("#pca-mode");
-    mode.textContent = `${modeLabel}${runtime.paused ? "（暂停）" : runtime.busy ? "（操作中）" : ""}`;
-    mode.className = runtime.error ? "pca-status err" : runtime.paused ? "pca-status pause" : runtime.mode !== "idle" ? "pca-status run" : "";
+    const modeText = `${modeLabel}${runtime.paused ? "（暂停）" : runtime.busy ? "（操作中）" : ""}`;
+    panel.querySelectorAll('[data-status="mode"]').forEach((node) => {
+      node.textContent = modeText;
+      node.className = runtime.error ? "pca-status err" : runtime.paused ? "pca-status pause" : runtime.mode !== "idle" ? "pca-status run" : "";
+    });
     const targetName = runtime.targetPlan?.speciesId ? species(runtime.targetPlan.speciesId)?.n : runtime.targetPlan?.chapterName;
-    panel.querySelector("#pca-target").textContent = targetName || "—";
-    panel.querySelector("#pca-place").textContent = `${chapter(save?.adv?.chapter)?.name || "—"}${runtime.targetPlan?.zone ? ` / ${runtime.targetPlan.zone}` : ""}`;
+    panel.querySelectorAll('[data-status="target"]').forEach((node) => { node.textContent = targetName || "—"; });
+    panel.querySelectorAll('[data-status="place"]').forEach((node) => { node.textContent = `${chapter(save?.adv?.chapter)?.name || "—"}${runtime.targetPlan?.zone ? ` / ${runtime.targetPlan.zone}` : ""}`; });
     let attemptText = String(runtime.attempts);
     if (runtime.targetPlan?.roaming && runtime.attempts > 0) {
       const captureKey = save?.buffs?.capture?.key;
@@ -963,13 +1061,13 @@
       const probability = 1 - (1 - 0.04 * multiplier) ** runtime.attempts;
       attemptText += ` · 累计${(probability * 100).toFixed(1)}%`;
     }
-    panel.querySelector("#pca-attempts").textContent = attemptText;
+    panel.querySelectorAll('[data-status="attempts"]').forEach((node) => { node.textContent = attemptText; });
     const activeBuffs = Object.values(save?.buffs || {}).filter((buff) => buff?.until > Date.now()).map((buff) => {
       const left = Math.max(0, buff.until - Date.now());
       return `${BERRIES[buff.key]?.label || buff.key} ${Math.ceil(left / 60_000)}分`;
     });
-    panel.querySelector("#pca-buffs").textContent = activeBuffs.join("、") || "—";
-    panel.querySelector("#pca-team").textContent = runtime.teamStatus;
+    panel.querySelectorAll('[data-status="buffs"]').forEach((node) => { node.textContent = activeBuffs.join("、") || "—"; });
+    panel.querySelectorAll('[data-status="team"]').forEach((node) => { node.textContent = runtime.teamStatus; });
     panel.querySelector("#pca-error").textContent = runtime.error ? `${runtime.error.phase}：${runtime.error.observed}\n建议：${runtime.error.suggestion}` : `无异常 · 游戏 ${gameBuild()} · 数据 ${DATA.appBuild}`;
   }
 

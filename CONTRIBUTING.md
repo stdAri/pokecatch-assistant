@@ -2,6 +2,10 @@
 
 欢迎提交问题和改进建议。报告问题时请附上：
 
+- [Bug 报告](https://github.com/stdAri/pokecatch-assistant/issues/new?template=bug_report.yml)
+- [功能建议](https://github.com/stdAri/pokecatch-assistant/issues/new?template=feature_request.yml)
+- [使用疑问](https://github.com/stdAri/pokecatch-assistant/issues/new?template=question.yml)
+
 - Poke'Catch 页面加载的 `app.<hash>.js` 版本；
 - 助手版本；
 - 当前模式、章节和目标；

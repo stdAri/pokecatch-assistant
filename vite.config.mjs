@@ -1,0 +1,66 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "vite";
+import monkey from "vite-plugin-monkey";
+
+const root = path.dirname(fileURLToPath(import.meta.url));
+const templatePath = path.join(root, "src/template.user.js");
+const distPath = path.join(root, "dist/pokecatch-assistant.user.js");
+const metadataPattern = /^\/\/ ==UserScript==[\s\S]*?\/\/ ==\/UserScript==\s*/;
+
+function readGeneratedGameData() {
+  const source = fs.readFileSync(distPath, "utf8");
+  const marker = "const DATA = ";
+  const start = source.indexOf(marker);
+  const end = source.indexOf(";\n  const SAVE_KEY", start);
+  if (start < 0 || end < 0) throw new Error("dist 中缺少游戏数据；请先运行 npm run build");
+  return source.slice(start + marker.length, end);
+}
+
+function injectGeneratedGameData() {
+  const gameData = readGeneratedGameData();
+  return {
+    name: "pokecatch-generated-game-data",
+    enforce: "pre",
+    transform(source, id) {
+      if (path.resolve(id.split("?", 1)[0]) !== templatePath) return null;
+      if (!source.includes("/*__GAME_DATA__*/")) throw new Error("template game data placeholder missing");
+      return {
+        code: source.replace(metadataPattern, "").replace("/*__GAME_DATA__*/", gameData),
+        map: null,
+      };
+    },
+  };
+}
+
+export default defineConfig({
+  optimizeDeps: {
+    noDiscovery: true,
+  },
+  plugins: [
+    injectGeneratedGameData(),
+    monkey({
+      entry: "src/template.user.js",
+      userscript: {
+        name: "开发：PokeCatch 全图鉴与推图助手",
+        namespace: "local.pokecatch.assistant",
+        version: "0.1.0",
+        description: "推图、缺失图鉴、徘徊神兽、第五队和果子自动化。只读取游戏状态并通过正常界面点击操作。",
+        match: [
+          "https://pokecatch-online.netlify.app/*",
+          "https://pokecatch-online.pages.dev/*",
+        ],
+        "run-at": "document-idle",
+        grant: ["GM_notification"],
+      },
+      server: {
+        open: true,
+        prefix: false,
+      },
+      build: {
+        fileName: "pokecatch-assistant.user.js",
+      },
+    }),
+  ],
+});

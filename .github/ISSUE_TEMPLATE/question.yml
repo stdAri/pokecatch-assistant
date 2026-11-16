@@ -1,0 +1,25 @@
+name: 使用疑问
+description: 询问安装、配置或操作方法
+title: "[Question] "
+labels:
+  - question
+body:
+  - type: textarea
+    id: question
+    attributes:
+      label: 问题
+      description: 请说明你想完成什么，以及卡在哪一步。
+    validations:
+      required: true
+  - type: input
+    id: assistant-version
+    attributes:
+      label: 助手版本
+      placeholder: 例如 0.1.0
+  - type: textarea
+    id: tried
+    attributes:
+      label: 已尝试的方法
+  - type: markdown
+    attributes:
+      value: 请勿粘贴登录令牌、完整存档、云端账号信息或其他隐私数据。
