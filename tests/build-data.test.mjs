@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.3.2", () => {
-  assert.equal(packageJson.version, "0.3.2");
-  assert.ok(source.includes("// @version      0.3.2"));
-  assert.ok(source.includes('const VERSION = "0.3.2"'));
-  assert.ok(viteConfig.includes('version: "0.3.2"'));
+test("userscript and development metadata share version 0.3.3", () => {
+  assert.equal(packageJson.version, "0.3.3");
+  assert.ok(source.includes("// @version      0.3.3"));
+  assert.ok(source.includes('const VERSION = "0.3.3"'));
+  assert.ok(viteConfig.includes('version: "0.3.3"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -312,10 +312,12 @@ test("berry controls provide Chinese and English names followed by their effects
     "凰梨果（战斗经验 +25%）",
     "兰萨果（金币 +25%）",
     "星桃果（野生异色 ×2）",
+    "雾莲果（徘徊宝可梦停留 30 分钟）",
   ]) assert.ok(source.includes(label), `missing berry label: ${label}`);
-  for (const label of ["Razz Berry (catch rate ×1.25)", "Golden Razz Berry (catch rate ×1.5)", "Pinap Berry (battle XP +25%)"]) {
+  for (const label of ["Razz Berry (catch rate ×1.25)", "Golden Razz Berry (catch rate ×1.5)", "Pinap Berry (battle XP +25%)", "Rowap Berry (roamers stay for 30 min)"]) {
     assert.ok(source.includes(label), `missing English berry label: ${label}`);
   }
+  assert.ok(source.includes('"rowap-berry": { family: "roam"'));
   assert.equal(source.includes('label: "经验果"'), false);
 });
 
@@ -323,6 +325,7 @@ test("expired berries renew independently using the game's clock and verify acti
   const activeBuffAt = sourceFunction("activeBuffAt");
   assert.equal(activeBuffAt({ buffs: { xp: { key: "pinap-berry", until: 2_000 } } }, "xp", 1_999)?.key, "pinap-berry");
   assert.equal(activeBuffAt({ buffs: { xp: { key: "pinap-berry", until: 2_000 } } }, "xp", 2_000), null);
+  assert.equal(activeBuffAt({ buffs: { roam: { key: "rowap-berry", until: 2_000 } } }, "roam", 1_999)?.key, "rowap-berry");
   assert.ok(source.includes("const gameNow = Number(save.lastTick) || Date.now();"));
   assert.ok(source.includes("if (!runtime.paused && !runtime.error) await manageBerries(save);"));
   assert.ok(source.indexOf("await manageBerries(save)") < source.indexOf('if (runtime.mode === "idle" || runtime.paused)'));

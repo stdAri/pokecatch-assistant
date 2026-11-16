@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.3.2
+// @version      0.3.3
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.3.2";
+  const VERSION = "0.3.3";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -35,6 +35,7 @@
     "pinap-berry": { family: "xp", zh: "凰梨果（战斗经验 +25%）", en: "Pinap Berry (battle XP +25%)" },
     "lansat-berry": { family: "money", zh: "兰萨果（金币 +25%）", en: "Lansat Berry (money +25%)" },
     "starf-berry": { family: "shiny", zh: "星桃果（野生异色 ×2）", en: "Starf Berry (wild shiny rate ×2)" },
+    "rowap-berry": { family: "roam", zh: "雾莲果（徘徊宝可梦停留 30 分钟）", en: "Rowap Berry (roamers stay for 30 min)" },
   };
 
   const TEXT = {
