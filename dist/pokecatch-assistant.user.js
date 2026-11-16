@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.1.0
+// @version      0.2.0
 // @description  推图、缺失图鉴、徘徊神兽、第五队和果子自动化。只读取游戏状态并通过正常界面点击操作。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -19,7 +19,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.1.0";
+  const VERSION = "0.2.0";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -73,6 +73,7 @@
     error: null,
     timer: null,
     chapterReset: null,
+    lastAutomatedActionAt: 0,
   };
 
   let settings = loadSettings();
@@ -128,6 +129,25 @@
 
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const jitter = (min = 350, max = 750) => sleep(Math.round(min + Math.random() * (max - min)));
+
+  async function pacedAction(action, {
+    beforeMin = 700,
+    beforeMax = 1_700,
+    afterMin = 450,
+    afterMax = 1_100,
+  } = {}) {
+    const targetGap = Math.round(beforeMin + Math.random() * (beforeMax - beforeMin));
+    const elapsed = Date.now() - runtime.lastAutomatedActionAt;
+    await sleep(runtime.lastAutomatedActionAt ? Math.max(0, targetGap - elapsed) : targetGap);
+    await action();
+    runtime.lastAutomatedActionAt = Date.now();
+    await jitter(afterMin, afterMax);
+  }
+
+  async function pacedClick(element, label, pacing) {
+    if (!element) throw new Error(`找不到${label}`);
+    await pacedAction(() => element.click(), pacing);
+  }
 
   async function waitFor(getter, { timeout = 6_000, interval = 80, label = "页面状态" } = {}) {
     const start = Date.now();
@@ -221,6 +241,11 @@
     return Number(save.dex?.[id]?.caught || 0) > 0;
   }
 
+  function activeBuffAt(save, family, now = Number(save?.lastTick) || Date.now()) {
+    const buff = save?.buffs?.[family];
+    return buff?.until > now ? buff : null;
+  }
+
   function typeEffect(attackType, defenderTypes) {
     const row = DATA.typeChart[attackType] || {};
     return (defenderTypes || []).reduce((value, type) => value * (row[type] ?? 1), 1);
@@ -306,9 +331,8 @@
     const button = document.querySelector(`#tabs [data-screen="${name}"]`);
     if (!button) throw new Error(`找不到${name}页面按钮`);
     if (!button.classList.contains("active")) {
-      button.click();
+      await pacedClick(button, `${name}页面按钮`);
       await waitFor(() => button.classList.contains("active"), { label: `${name}页面` });
-      await jitter();
     }
   }
 
@@ -316,18 +340,17 @@
     runtime.expectedChapter = chapterIndex;
     await openScreen("adventure");
     let visibleRow = document.querySelector(`.mp-row[data-ch="${chapterIndex}"]`);
-    if (!visibleRow) document.querySelector("#side-chapter")?.click();
+    if (!visibleRow) await pacedClick(document.querySelector("#side-chapter"), "章节列表按钮");
     const row = await waitFor(
       () => document.querySelector(`.mp-row[data-ch="${chapterIndex}"]`),
       { label: `章节${chapterIndex}列表项` },
     );
-    row.click();
+    await pacedClick(row, `章节${chapterIndex}列表项`);
     const go = await waitFor(
       () => document.querySelector(`.mp-go[data-go="${chapterIndex}"]`),
       { label: `章节${chapterIndex}进入按钮` },
     );
-    await jitter();
-    go.click();
+    await pacedClick(go, `章节${chapterIndex}进入按钮`);
     await waitFor(() => readSave().adv.chapter === chapterIndex, { timeout: 10_000, label: `进入章节${chapterIndex}` });
     if (settle) await jitter(500, 900);
     runtime.expectedChapter = null;
@@ -411,6 +434,9 @@
 
   async function dragPokemon(source, destination, label) {
     if (!source || !destination) throw new Error(`找不到${label}的拖放位置`);
+    const targetGap = Math.round(700 + Math.random() * 1_000);
+    const elapsed = Date.now() - runtime.lastAutomatedActionAt;
+    await sleep(runtime.lastAutomatedActionAt ? Math.max(0, targetGap - elapsed) : targetGap);
     const from = source.getBoundingClientRect();
     const to = destination.getBoundingClientRect();
     const pointerId = syntheticPointerId += 1;
@@ -429,27 +455,37 @@
     const toX = to.left + to.width / 2;
     const toY = to.top + Math.min(to.height / 2, 24);
     source.dispatchEvent(event("pointerdown", fromX, fromY, 1));
+    await jitter(35, 85);
     document.dispatchEvent(event("pointermove", fromX + Math.sign(toX - fromX || 1) * 8, fromY + Math.sign(toY - fromY || 1) * 8, 1));
+    await jitter(35, 85);
     document.dispatchEvent(event("pointermove", toX, toY, 1));
+    await jitter(35, 85);
     document.dispatchEvent(event("pointerup", toX, toY, 0));
-    await jitter(180, 360);
+    runtime.lastAutomatedActionAt = Date.now();
+    await jitter(450, 1_100);
   }
 
   async function configurePreset(presetIndex, desiredUids) {
     if (desiredUids.length < 1) throw new Error("推荐阵容为空");
     await openScreen("team");
     const preset = await waitFor(() => document.querySelector(`#team-sets [data-set="${presetIndex}"]`), { label: `队伍${presetIndex + 1}` });
-    preset.click();
+    await pacedClick(preset, `队伍${presetIndex + 1}预设`);
     await waitFor(() => readSave().teamSets?.on === presetIndex, { label: `切换到队伍${presetIndex + 1}` });
-    await jitter();
 
-    document.querySelector("#pc-evo.on")?.click();
-    document.querySelector("#pc-shiny.on")?.click();
-    for (const filter of [...document.querySelectorAll("#pc-active button")]) filter.click();
+    const quickPacing = { beforeMin: 140, beforeMax: 360, afterMin: 100, afterMax: 260 };
+    const evoFilter = document.querySelector("#pc-evo.on");
+    if (evoFilter) await pacedClick(evoFilter, "进化筛选", quickPacing);
+    const shinyFilter = document.querySelector("#pc-shiny.on");
+    if (shinyFilter) await pacedClick(shinyFilter, "异色筛选", quickPacing);
+    for (const filter of [...document.querySelectorAll("#pc-active button")]) {
+      await pacedClick(filter, "电脑筛选按钮", quickPacing);
+    }
     const search = document.querySelector("#pc-search");
     if (search) {
       search.value = "";
+      await jitter(140, 360);
       search.dispatchEvent(new Event("input", { bubbles: true }));
+      await jitter(180, 420);
     }
 
     let current = [...readSave().team];
@@ -466,8 +502,9 @@
       if (!mon) continue;
       if (search) {
         search.value = species(mon.id)?.n || "";
+        await jitter(140, 360);
         search.dispatchEvent(new Event("input", { bubbles: true }));
-        await sleep(120);
+        await jitter(180, 420);
       }
       const card = await waitFor(
         () => document.querySelector(`#pc-grid .pc-cell[data-uid="${CSS.escape(uid)}"]`),
@@ -489,7 +526,9 @@
 
     if (search) {
       search.value = "";
+      await jitter(140, 360);
       search.dispatchEvent(new Event("input", { bubbles: true }));
+      await jitter(180, 420);
     }
     const final = readSave().team;
     if (desiredUids.some((uid) => !final.includes(uid))) throw new Error("第五队未能完整应用");
@@ -577,15 +616,34 @@
     return plans.sort((a, b) => b.score - a.score || a.prefixCost - b.prefixCost)[0] || null;
   }
 
+  function activeRoamersFromState(roamAt, priorityIds, now = Date.now()) {
+    const priority = new Map(priorityIds.map((id, index) => [id, index]));
+    return Object.entries(roamAt || {})
+      .map(([id, state]) => ({
+        id: Number(id),
+        chapter: state?.ch ?? state?.chapter,
+        until: state?.until ?? state?.at ?? 0,
+      }))
+      .filter((item) => priority.has(item.id))
+      .filter((item) => Number.isInteger(item.chapter) && Number(item.until) > now)
+      .sort((a, b) => priority.get(a.id) - priority.get(b.id));
+  }
+
   function activeRoamers(save) {
-    const now = Date.now();
-    return roamingPriorityIds()
-      .filter((id) => !isCaught(save, id))
-      .map((id) => {
-        const state = save.roam?.at?.[id] || {};
-        return { id, chapter: state.ch ?? state.chapter, until: state.until ?? state.at ?? 0 };
-      })
-      .filter((item) => Number.isInteger(item.chapter) && item.until > now);
+    return activeRoamersFromState(save.roam?.at, roamingPriorityIds());
+  }
+
+  function roamingCaughtStatus(save, id) {
+    const roamCaught = Array.isArray(save.roam?.caught) && save.roam.caught.includes(id);
+    const dexCaught = isCaught(save, id);
+    return { caught: roamCaught || dexCaught, roamCaught, dexCaught };
+  }
+
+  function roamingTargetTransition(realtime, tries, previousTries, confirmCaught) {
+    if (!realtime) return { type: "disappeared", caught: Boolean(confirmCaught()) };
+    if (confirmCaught()) return { type: "conflict" };
+    if (tries > previousTries) return { type: "failed", attempts: tries - previousTries };
+    return { type: "tracking" };
   }
 
   function timelinePlanStatus(plan) {
@@ -684,53 +742,108 @@
   }
 
   async function collectTick(save, { trackRoamers, collectMissing }) {
+    const roamers = trackRoamers ? activeRoamers(save) : [];
     if (runtime.chapterReset) {
-      await exclusive("继续章节重置", continueChapterReset);
-      return;
+      const resettingRoamerId = runtime.targetPlan?.roaming ? runtime.targetPlan.speciesId : null;
+      const resettingRoamer = resettingRoamerId ? roamers.find((item) => item.id === resettingRoamerId) : null;
+      if (resettingRoamerId && !resettingRoamer) {
+        runtime.chapterReset = null;
+        log(`${species(resettingRoamerId)?.n || resettingRoamerId}已离开实时列表，取消未完成的章节重置`);
+      } else {
+        if (resettingRoamerId && roamingCaughtStatus(save, resettingRoamerId).caught) {
+          diagnostic("神兽状态冲突", new Error(`${species(resettingRoamerId)?.n || resettingRoamerId}仍在实时列表，但 roam.caught 或图鉴已显示捕获`), {
+            expected: "实时神兽条目与捕获状态一致",
+            suggestion: "请刷新游戏确认神兽列表和图鉴；状态一致后再手动继续。",
+          });
+          return;
+        }
+        await exclusive("继续章节重置", continueChapterReset);
+        return;
+      }
     }
 
-    const roamers = trackRoamers ? activeRoamers(save) : [];
-    if (trackRoamers && roamers.length) {
-      const roamer = roamers[0];
-      const targetKey = `roam:${roamer.id}`;
-      if (runtime.target !== targetKey) {
-        runtime.target = targetKey;
-        runtime.targetPlan = {
-          speciesId: roamer.id,
-          chapter: roamer.chapter,
-          chapterName: chapter(roamer.chapter)?.name,
-          roaming: true,
-          until: roamer.until,
-        };
-        runtime.userTeamOverride = false;
-        runtime.attempts = 0;
-        runtime.lastRoamTries[roamer.id] = Number(save.legTries?.[roamer.id] || 0);
-        const plan = recommendTeam(save, [roamer.id], { levelWeight: COLLECTION_LEVEL_WEIGHT });
-        await exclusive("配置神兽阵容", async () => {
-          await applyRecommendedTeam(plan, species(roamer.id)?.n || String(roamer.id));
-          if (readSave().adv.chapter !== roamer.chapter) await switchChapter(roamer.chapter);
+    const currentRoamerId = runtime.targetPlan?.roaming ? runtime.targetPlan.speciesId : null;
+    const currentRoamer = currentRoamerId ? roamers.find((item) => item.id === currentRoamerId) : null;
+
+    if (currentRoamerId) {
+      const tries = Number(save.legTries?.[currentRoamerId] || 0);
+      const previous = Number(runtime.lastRoamTries[currentRoamerId] ?? tries);
+      const transition = roamingTargetTransition(
+        currentRoamer,
+        tries,
+        previous,
+        () => roamingCaughtStatus(save, currentRoamerId).caught,
+      );
+
+      if (transition.type === "conflict") {
+        diagnostic("神兽状态冲突", new Error(`${species(currentRoamerId)?.n || currentRoamerId}仍在实时列表，但 roam.caught 或图鉴已显示捕获`), {
+          expected: "实时神兽条目与捕获状态一致",
+          suggestion: "请刷新游戏确认神兽列表和图鉴；状态一致后再手动继续。",
         });
         return;
       }
 
-      const tries = Number(save.legTries?.[roamer.id] || 0);
-      const previous = Number(runtime.lastRoamTries[roamer.id] ?? tries);
-      if (tries > previous && !isCaught(save, roamer.id)) {
-        runtime.attempts += tries - previous;
-        runtime.lastRoamTries[roamer.id] = tries;
+      if (transition.type === "failed") {
+        runtime.attempts += transition.attempts;
+        runtime.lastRoamTries[currentRoamerId] = tries;
         await exclusive("神兽捕获失败后重置", () => resetChapter(runtime.targetPlan));
-      } else {
-        runtime.lastRoamTries[roamer.id] = tries;
+        return;
       }
-      return;
-    }
 
-    if (runtime.target?.startsWith("roam:")) {
+      if (transition.type === "tracking") {
+        runtime.lastRoamTries[currentRoamerId] = tries;
+        return;
+      }
+
+      const name = species(currentRoamerId)?.n || String(currentRoamerId);
+      if (transition.caught) {
+        notifyUser("神兽捕获成功", `${name}已从实时列表移除，并已确认捕获。`);
+        log(`${name}已捕获，结束当前神兽目标并重新规划`);
+      } else {
+        notifyUser("神兽已离开", `${name}已从实时列表移除，未发现捕获记录。`);
+        log(`${name}停留到期或已离开，结束当前神兽目标并重新规划`);
+      }
+      delete runtime.lastRoamTries[currentRoamerId];
       runtime.target = null;
       runtime.targetPlan = null;
       runtime.teamPlan = null;
       runtime.attempts = 0;
-      log(collectMissing ? "神兽捕获或离开，重新规划普通缺失图鉴" : "神兽捕获或离开，继续等待下一只徘徊神兽");
+    }
+
+    if (trackRoamers && roamers.length) {
+      const roamer = roamers[0];
+      const targetKey = `roam:${roamer.id}`;
+      const tries = Number(save.legTries?.[roamer.id] || 0);
+      const transition = roamingTargetTransition(
+        roamer,
+        tries,
+        tries,
+        () => roamingCaughtStatus(save, roamer.id).caught,
+      );
+      if (transition.type === "conflict") {
+        diagnostic("神兽状态冲突", new Error(`${species(roamer.id)?.n || roamer.id}仍在实时列表，但 roam.caught 或图鉴已显示捕获`), {
+          expected: "实时神兽条目与捕获状态一致",
+          suggestion: "请刷新游戏确认神兽列表和图鉴；状态一致后再手动继续。",
+        });
+        return;
+      }
+      runtime.target = targetKey;
+      runtime.targetPlan = {
+        speciesId: roamer.id,
+        chapter: roamer.chapter,
+        chapterName: chapter(roamer.chapter)?.name,
+        roaming: true,
+        until: roamer.until,
+      };
+      runtime.userTeamOverride = false;
+      runtime.attempts = 0;
+      runtime.lastRoamTries[roamer.id] = tries;
+      const plan = recommendTeam(save, [roamer.id], { levelWeight: COLLECTION_LEVEL_WEIGHT });
+      await exclusive("配置神兽阵容", async () => {
+        await applyRecommendedTeam(plan, species(roamer.id)?.n || String(roamer.id));
+        if (readSave().adv.chapter !== roamer.chapter) await switchChapter(roamer.chapter);
+      });
+      return;
     }
 
     if (!collectMissing) {
@@ -784,6 +897,7 @@
   async function manageBerries(save) {
     if (Date.now() - runtime.lastBerryCheckAt < 5_000) return;
     runtime.lastBerryCheckAt = Date.now();
+    const gameNow = Number(save.lastTick) || Date.now();
     const enabled = Object.entries(settings.berries).filter(([, config]) => config.enabled);
     const byFamily = new Map();
     for (const [key, config] of enabled) {
@@ -795,8 +909,8 @@
     }
 
     for (const [family, options] of byFamily) {
-      const active = save.buffs?.[family];
-      if (active?.until > Date.now()) continue;
+      const active = activeBuffAt(save, family, gameNow);
+      if (active) continue;
       options.sort((a, b) => Number(b.key === "golden-razz-berry") - Number(a.key === "golden-razz-berry"));
       const choice = options.find(({ key, config }) => Number(save.items?.[key] || 0) > Number(config.reserve || 0));
       if (!choice) continue;
@@ -805,9 +919,14 @@
         log(`已启用${choice.info.label}，但页面没有对应按钮`, "error");
         continue;
       }
-      button.click();
+      const countBefore = Number(save.items?.[choice.key] || 0);
+      await pacedClick(button, choice.info.label);
+      await waitFor(() => {
+        const current = readSave();
+        const buff = activeBuffAt(current, family);
+        return Number(current.items?.[choice.key] || 0) < countBefore && buff?.key === choice.key;
+      }, { timeout: 5_000, label: `${choice.info.label}生效` });
       log(`自动使用：${choice.info.label}`);
-      await jitter();
       break;
     }
   }
@@ -825,15 +944,19 @@
   }
 
   async function tick() {
-    if (runtime.mode === "idle" || runtime.paused || runtime.busy) {
+    if (runtime.busy) {
       renderStatus();
       return;
     }
     try {
       const save = readSave();
+      if (!runtime.paused && !runtime.error) await manageBerries(save);
+      if (runtime.mode === "idle" || runtime.paused) {
+        renderStatus();
+        return;
+      }
       observeBattle(save);
       detectManualTeamChange(save);
-      await manageBerries(save);
       if (runtime.mode === "push") await pushTick(save);
       else if (runtime.mode === "collect") await collectTick(save, { trackRoamers: false, collectMissing: true });
       else if (runtime.mode === "roaming") await collectTick(save, { trackRoamers: true, collectMissing: false });
