@@ -48,6 +48,17 @@ const moves = evaluateLiteral(extractLiteral("a.MOVES={", "{", "}"));
 const typeChart = evaluateLiteral(extractLiteral("a.TYPE_CHART={", "{", "}"));
 const encounters = evaluateLiteral(extractLiteral("a.ENCOUNTERS={", "{", "}"));
 const habitats = evaluateLiteral(extractLiteral("a.HABITATS={", "{", "}"));
+const weather = evaluateLiteral(extractLiteral("WEATHER:{", "{", "}"));
+const roamingWeather = evaluateLiteral(extractLiteral("MIN_LEVEL:100,WEATHER:{", "{", "}"));
+const compactWeather = {
+  slotMs: weather.SLOT_MS,
+  chance: weather.CHANCE,
+  climates: weather.CLIMATES,
+  regionOff: weather.REGION_OFF,
+  regionWeights: weather.REGION_WEIGHTS,
+  translate: weather.TRANSLATE,
+  types: weather.TYPES,
+};
 const chapterLiteral = extractLiteral("CHAPTERS:[", "[", "]");
 const unownIds = Array.from({ length: 28 }, (_, index) => 20100 + index);
 const chapters = evaluateLiteral(chapterLiteral, { a: { UNOWN: { ids: unownIds } } });
@@ -74,6 +85,7 @@ const compactChapters = chapters.map((chapter, index) => {
     sourceName: chapter.name,
     region: inheritedRegion,
     day: !!chapter.day,
+    weather: chapter.weather,
     ace: chapter.ace || boss?.team?.reduce((max, [, level]) => Math.max(max, level), 0) || 1,
     routes: steps
       .map((step, stepIndex) => ({
@@ -81,6 +93,9 @@ const compactChapters = chapters.map((chapter, index) => {
         kind: step.kind,
         name: translate(step.name),
         sourceName: step.name,
+        bg: step.bg || null,
+        indoor: step.indoor,
+        weather: step.weather,
         wild: step.wild || 0,
         trainers: step.trainers || 0,
         areas: step.areas || [],
@@ -132,6 +147,8 @@ const gameData = {
   chapters: compactChapters,
   encounters,
   habitats,
+  weather: compactWeather,
+  roamingWeather,
 };
 
 if (!template.includes("/*__GAME_DATA__*/")) throw new Error("template placeholder missing");

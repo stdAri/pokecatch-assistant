@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.2.2
+// @version      0.2.3
 // @description  推图、缺失图鉴、徘徊神兽、第五队和果子自动化。只读取游戏状态并通过正常界面点击操作。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -19,7 +19,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.2.2";
+  const VERSION = "0.2.3";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -577,19 +577,97 @@
     return daytimePhaseAt(Number(save.lastTick) || Date.now(), forcedDay);
   }
 
-  function habitatWeights(habitat, phase) {
+  function weatherHash(value) {
+    let hash = 2_166_136_261;
+    for (const char of value) hash = Math.imul(hash ^ char.charCodeAt(0), 16_777_619);
+    hash ^= hash >>> 16;
+    hash = Math.imul(hash, 2_246_822_507);
+    hash ^= hash >>> 13;
+    hash = Math.imul(hash, 3_266_489_909);
+    hash ^= hash >>> 16;
+    return (hash >>> 0) / 4_294_967_296;
+  }
+
+  function routeClimate(route, region) {
+    const config = DATA.weather;
+    const source = (typeof route.climate === "string" ? config.climates[route.climate] : route.climate)
+      || config.climates[route.bg];
+    if (!source) return null;
+    const climate = { ...source };
+    for (const key of config.regionOff?.[region] || []) delete climate[key];
+    for (const weights of [config.regionWeights?.[region]?.all, config.regionWeights?.[region]?.[route.bg]]) {
+      for (const [key, multiplier] of Object.entries(weights || {})) {
+        if (climate[key]) climate[key] *= multiplier;
+      }
+    }
+    return Object.keys(climate).length ? climate : null;
+  }
+
+  function chapterClimate(item) {
+    const climate = {};
+    for (const route of item.routes) {
+      if (route.indoor) continue;
+      for (const [key, weight] of Object.entries(routeClimate(route, item.region) || {})) {
+        climate[key] = (climate[key] || 0) + weight;
+      }
+    }
+    return Object.keys(climate).length ? climate : null;
+  }
+
+  function generatedWeatherForRoute(item, route, timestamp, phase) {
+    const ownClimate = routeClimate(route, item.region);
+    if (!ownClimate || route.indoor) return null;
+    const slot = Math.floor(timestamp / DATA.weather.slotMs);
+    const chapterKey = `ch${item.index}`;
+    let run = 0;
+    while (run < 64 && weatherHash(`${chapterKey}|${slot - run}`) < DATA.weather.chance) run += 1;
+    if (run % 2 === 0) return null;
+
+    const choices = Object.entries(chapterClimate(item) || ownClimate)
+      .filter(([key]) => !(phase === "night" && DATA.weather.types[key]?.daylight));
+    if (!choices.length) return null;
+    const total = choices.reduce((sum, [, weight]) => sum + weight, 0);
+    let roll = weatherHash(`${slot}|${chapterKey}`) * total;
+    let selected = choices[0][0];
+    for (const [key, weight] of choices) {
+      roll -= weight;
+      if (roll <= 0) {
+        selected = key;
+        break;
+      }
+    }
+    const supported = (key) => ownClimate[key] && !(phase === "night" && DATA.weather.types[key]?.daylight);
+    if (supported(selected)) return selected;
+    return (DATA.weather.translate[selected] || []).find(supported) || null;
+  }
+
+  function currentWeatherForRoute(save, item, route, timestamp, phase) {
+    if (Object.hasOwn(route, "weather")) return route.weather;
+    if (!routeClimate(route, item.region) || route.indoor) return null;
+    const slot = Math.floor(timestamp / DATA.weather.slotMs);
+    if (item.weather) return Array.isArray(item.weather) ? item.weather[slot % item.weather.length] : item.weather;
+    const roamer = Object.entries(save.roam?.at || {}).find(([, value]) => (
+      Number(value?.ch) === item.index && Number(value?.until) > timestamp
+    ));
+    if (roamer && DATA.roamingWeather[roamer[0]]) return DATA.roamingWeather[roamer[0]];
+    return generatedWeatherForRoute(item, route, timestamp, phase);
+  }
+
+  function habitatWeights(habitat, phase, weather) {
     const weights = {};
-    const add = (id, value) => { weights[id] = Math.max(weights[id] || 0, Number(value) || 0); };
-    for (const table of [habitat?.base, habitat?.[phase]]) {
+    for (const table of [habitat?.base, habitat?.[phase], habitat?.[weather]]) {
       if (!table || typeof table !== "object") continue;
-      for (const [id, weight] of Object.entries(table)) if (weight > 0) add(id, weight);
+      for (const [id, weight] of Object.entries(table)) {
+        if (Number(weight) > 0) weights[id] = Number(weight);
+        else delete weights[id];
+      }
     }
     return weights;
   }
 
-  function routeWeights(route, phase) {
+  function routeWeights(route, phase, weather) {
     const habitat = habitatForRoute(route);
-    const weights = habitatWeights(habitat, phase);
+    const weights = habitatWeights(habitat, phase, weather);
     if (!habitat) {
       for (const id of route.species || []) weights[id] = Math.max(weights[id] || 0, 1);
       for (const area of route.areas || []) {
@@ -613,12 +691,13 @@
     });
   }
 
-  function plansForSpecies(save, speciesId) {
+  function plansForSpecies(save, speciesId, timestamp = Number(save.lastTick) || Date.now()) {
     const plans = [];
     for (const item of availableChapters(save)) {
       for (const route of item.routes) {
-        const phase = currentDaytimePhase(save, item.index);
-        const weight = routeWeights(route, phase)[speciesId] || 0;
+        const phase = daytimePhaseAt(timestamp, Boolean(item.day && !(save.adv.unlocked > item.index)));
+        const weather = currentWeatherForRoute(save, item, route, timestamp, phase);
+        const weight = routeWeights(route, phase, weather)[speciesId] || 0;
         if (weight <= 0) continue;
         const prefixCost = route.stepIndex + 1;
         const score = weight * Math.max(1, route.wild) / prefixCost;
@@ -633,6 +712,7 @@
           weight,
           score,
           phase,
+          weather,
         });
       }
     }
@@ -654,6 +734,23 @@
       if (options.length) plans.push(options[0]);
     }
     return plans.sort((a, b) => b.score - a.score || a.prefixCost - b.prefixCost)[0] || null;
+  }
+
+  function nextConditionalPlan(save, hours = 48) {
+    const now = Number(save.lastTick) || Date.now();
+    const start = Math.floor(now / DATA.weather.slotMs) * DATA.weather.slotMs;
+    const ids = settings.manualTargets.length
+      ? settings.manualTargets.filter((id) => !isCaught(save, id))
+      : Object.keys(DATA.species).map(Number).filter((id) => !isCaught(save, id));
+    for (let offset = 1; offset <= hours; offset += 1) {
+      const at = start + offset * DATA.weather.slotMs;
+      const options = ids.flatMap((id) => plansForSpecies(save, id, at));
+      if (options.length) {
+        const plan = options.sort((a, b) => b.score - a.score || a.prefixCost - b.prefixCost)[0];
+        return { ...plan, availableAt: at };
+      }
+    }
+    return null;
   }
 
   function activeRoamersFromState(roamAt, priorityIds, now = Date.now()) {
@@ -903,7 +1000,7 @@
         plan.chapter === runtime.targetPlan.chapter && plan.zone === runtime.targetPlan.zone
       ));
       if (!stillAvailable) {
-        log(`${species(runtime.targetPlan.speciesId)?.n || runtime.targetPlan.speciesId}当前昼夜条件已变化，重新规划目标`);
+        log(`${species(runtime.targetPlan.speciesId)?.n || runtime.targetPlan.speciesId}当前昼夜或天气条件已变化，重新规划目标`);
         runtime.target = null;
         runtime.targetPlan = null;
         runtime.teamPlan = null;
@@ -914,6 +1011,19 @@
     if (!runtime.targetPlan || isCaught(save, runtime.targetPlan.speciesId)) {
       const next = chooseMissingPlan(save);
       if (!next) {
+        const waiting = nextConditionalPlan(save);
+        if (waiting) {
+          const waitingKey = `dex:waiting:${waiting.speciesId}:${waiting.availableAt}`;
+          if (runtime.target !== waitingKey) {
+            const condition = [waiting.phase, waiting.weather].filter(Boolean).join(" / ");
+            log(`等待${species(waiting.speciesId)?.n || waiting.speciesId}条件：${waiting.chapterName} · ${new Date(waiting.availableAt).toLocaleString()}${condition ? ` · ${condition}` : ""}`);
+          }
+          runtime.target = waitingKey;
+          runtime.targetPlan = null;
+          runtime.teamPlan = null;
+          runtime.teamStatus = `等待条件：${waiting.chapterName} · ${new Date(waiting.availableAt).toLocaleString()}`;
+          return;
+        }
         runtime.paused = true;
         notifyUser("自动捕获目标已完成", "当前范围只剩进化、孵蛋、交换、特殊事件或条件尚未满足的目标。 ");
         log("没有可自动刷取的缺失目标，已进入等待状态");

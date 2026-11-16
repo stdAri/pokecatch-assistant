@@ -11,7 +11,7 @@ const start = source.indexOf(marker) + marker.length;
 const end = source.indexOf(";\n  const SAVE_KEY", start);
 const data = JSON.parse(source.slice(start, end));
 
-function sourceFunction(name) {
+function sourceFunctionText(name) {
   const signature = `function ${name}(`;
   const functionStart = source.indexOf(signature);
   assert.notEqual(functionStart, -1, `missing function ${name}`);
@@ -20,9 +20,20 @@ function sourceFunction(name) {
   for (let index = bodyStart; index < source.length; index += 1) {
     if (source[index] === "{") depth += 1;
     if (source[index] === "}") depth -= 1;
-    if (depth === 0) return vm.runInThisContext(`(${source.slice(functionStart, index + 1)})`);
+    if (depth === 0) return source.slice(functionStart, index + 1);
   }
   throw new Error(`unterminated function ${name}`);
+}
+
+function sourceFunction(name) {
+  return vm.runInThisContext(`(${sourceFunctionText(name)})`);
+}
+
+function sourceFunctions(names, context = {}) {
+  const sandbox = { ...context, result: null };
+  vm.createContext(sandbox);
+  vm.runInContext(`${names.map(sourceFunctionText).join("\n")}\nresult = { ${names.join(", ")} };`, sandbox);
+  return sandbox.result;
 }
 
 test("generated data matches the inspected game build", () => {
@@ -33,11 +44,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.2.2", () => {
-  assert.equal(packageJson.version, "0.2.2");
-  assert.ok(source.includes("// @version      0.2.2"));
-  assert.ok(source.includes('const VERSION = "0.2.2"'));
-  assert.ok(viteConfig.includes('version: "0.2.2"'));
+test("userscript and development metadata share version 0.2.3", () => {
+  assert.equal(packageJson.version, "0.2.3");
+  assert.ok(source.includes("// @version      0.2.3"));
+  assert.ok(source.includes('const VERSION = "0.2.3"'));
+  assert.ok(viteConfig.includes('version: "0.2.3"'));
 });
 
 test("Johto finale contains Red's actual six Pokemon", () => {
@@ -67,9 +78,50 @@ test("collection planning follows the game's daytime boundaries and replans expi
 
   const habitatWeights = sourceFunction("habitatWeights");
   const route29 = data.habitats["Route 29|gsc:johto-route-29-area"];
-  assert.equal(habitatWeights(route29, "day")[155], undefined);
-  assert.equal(habitatWeights(route29, "night")[155], 4);
-  assert.ok(source.includes("当前昼夜条件已变化，重新规划目标"));
+  assert.equal(habitatWeights(route29, "day", null)[155], undefined);
+  assert.equal(habitatWeights(route29, "night", null)[155], 4);
+  assert.ok(source.includes("当前昼夜或天气条件已变化，重新规划目标"));
+});
+
+test("weather is calculated per chapter and applied to encounter tables", () => {
+  assert.equal(data.weather.slotMs, 3_600_000);
+  assert.equal(data.weather.chance, 0.54);
+  assert.equal(data.chapters[5].region, "kanto");
+  assert.equal(data.chapters[14].region, "johto");
+  assert.ok(source.includes("const chapterKey = `ch${item.index}`"));
+  assert.ok(source.includes("currentWeatherForRoute(save, item, route, timestamp, phase)"));
+  assert.ok(source.includes("habitat?.[weather]"));
+  assert.ok(source.includes("nextConditionalPlan(save)"));
+
+  const habitatWeights = sourceFunction("habitatWeights");
+  const route29 = data.habitats["Route 29|gsc:johto-route-29-area"];
+  assert.equal(habitatWeights(route29, "day", "rain")[60], 6);
+  assert.equal(habitatWeights(route29, "day", null)[60], undefined);
+  assert.equal(habitatWeights(route29, "night", null)[16], undefined);
+
+  const weatherFunctions = sourceFunctions([
+    "weatherHash",
+    "routeClimate",
+    "chapterClimate",
+    "generatedWeatherForRoute",
+    "currentWeatherForRoute",
+  ], { DATA: data });
+  const save = { adv: { unlocked: 50 }, roam: { at: {} } };
+  const wing = data.chapters[14];
+  const steel = data.chapters[19];
+  const wingRoute29 = wing.routes.find((route) => route.name === "29号道路");
+  const steelRoute39 = steel.routes.find((route) => route.name === "39号道路");
+  const weatherAt = (item, route, value, phase = "day") => weatherFunctions.currentWeatherForRoute(
+    save,
+    item,
+    route,
+    Date.parse(value),
+    phase,
+  );
+  assert.equal(weatherAt(wing, wingRoute29, "2026-11-16T19:30:00+08:00"), null);
+  assert.equal(weatherAt(steel, steelRoute39, "2026-11-16T19:30:00+08:00"), "rain");
+  assert.equal(weatherAt(wing, wingRoute29, "2026-11-16T21:00:00+08:00", "night"), "rain");
+  assert.equal(weatherAt(wing, wingRoute29, "2026-11-16T23:00:00+08:00", "night"), "storm");
 });
 
 test("userscript never writes the game save key", () => {

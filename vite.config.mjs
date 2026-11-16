@@ -45,7 +45,7 @@ export default defineConfig({
       userscript: {
         name: "开发：PokeCatch 全图鉴与推图助手",
         namespace: "local.pokecatch.assistant",
-        version: "0.2.2",
+        version: "0.2.3",
         description: "推图、缺失图鉴、徘徊神兽、第五队和果子自动化。只读取游戏状态并通过正常界面点击操作。",
         match: [
           "https://pokecatch-online.netlify.app/*",
