@@ -10,6 +10,9 @@ const marker = "const DATA = ";
 const start = source.indexOf(marker) + marker.length;
 const end = source.indexOf(";\n  const SAVE_KEY", start);
 const data = JSON.parse(source.slice(start, end));
+const textStart = source.indexOf("const TEXT = ") + "const TEXT = ".length;
+const textEnd = source.indexOf(";\n\n  const DEFAULT_SETTINGS", textStart);
+const uiText = vm.runInThisContext(`(${source.slice(textStart, textEnd)})`);
 
 function sourceFunctionText(name) {
   const signature = `function ${name}(`;
@@ -44,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.2.3", () => {
-  assert.equal(packageJson.version, "0.2.3");
-  assert.ok(source.includes("// @version      0.2.3"));
-  assert.ok(source.includes('const VERSION = "0.2.3"'));
-  assert.ok(viteConfig.includes('version: "0.2.3"'));
+test("userscript and development metadata share version 0.3.0", () => {
+  assert.equal(packageJson.version, "0.3.0");
+  assert.ok(source.includes("// @version      0.3.0"));
+  assert.ok(source.includes('const VERSION = "0.3.0"'));
+  assert.ok(viteConfig.includes('version: "0.3.0"'));
 });
 
 test("Johto finale contains Red's actual six Pokemon", () => {
@@ -138,8 +141,10 @@ test("control panel separates features into dedicated tabs", () => {
 });
 
 test("collection UI separates ordinary targets from roaming legendaries", () => {
-  assert.ok(source.includes("<h4>普通野外目标</h4>"));
-  assert.ok(source.includes("<h4>徘徊神兽</h4>"));
+  assert.ok(source.includes('ordinaryTargets: "普通野外目标"'));
+  assert.ok(source.includes('ordinaryTargets: "Ordinary wild targets"'));
+  assert.ok(source.includes('${t("ordinaryTargets")}'));
+  assert.ok(source.includes('${t("roamers")}'));
   assert.ok(source.includes('id="pca-roaming-priority"'));
   assert.ok(source.includes('data-act="roam-up"'));
   assert.ok(source.includes('data-act="roam-down"'));
@@ -147,12 +152,42 @@ test("collection UI separates ordinary targets from roaming legendaries", () => 
 });
 
 test("ordinary collection, roaming tracking, and combined collection are independently selectable", () => {
-  assert.ok(source.includes('data-act="collect">普通图鉴收集'));
-  assert.ok(source.includes('data-act="roaming">仅追踪神兽'));
-  assert.ok(source.includes('data-act="combined">普通 + 神兽协同'));
+  assert.ok(source.includes('data-act="collect">${t("dexCollection")}'));
+  assert.ok(source.includes('data-act="roaming">${t("roamOnly")}'));
+  assert.ok(source.includes('data-act="combined">${t("combined")}'));
   assert.ok(source.includes('collectTick(save, { trackRoamers: false, collectMissing: true })'));
   assert.ok(source.includes('collectTick(save, { trackRoamers: true, collectMissing: false })'));
   assert.ok(source.includes('collectTick(save, { trackRoamers: true, collectMissing: true })'));
+});
+
+test("assistant UI supports automatic, Chinese, and English language selection", () => {
+  assert.ok(source.includes('language: "auto"'));
+  assert.ok(source.includes('localStorage.getItem("pokecatch.lang")'));
+  assert.ok(source.includes('data-select-setting="language"'));
+  assert.ok(source.includes('value="zh"'));
+  assert.ok(source.includes('value="en"'));
+  assert.ok(source.includes('assistant: "PokéCatch 助手"'));
+  assert.ok(source.includes('assistant: "PokéCatch Assistant"'));
+  assert.ok(source.includes('settings.language = event.target.value'));
+  assert.ok(source.includes("renderPanel();"));
+
+  let gameLanguage = "zh-Hans";
+  const settings = { language: "auto" };
+  const languageFunctions = sourceFunctions(["language", "t"], {
+    TEXT: uiText,
+    settings,
+    localStorage: { getItem: () => gameLanguage },
+    document: { documentElement: { lang: "en" } },
+  });
+  assert.equal(languageFunctions.language(), "zh");
+  assert.equal(languageFunctions.t("assistant"), "PokéCatch 助手");
+  gameLanguage = "en";
+  assert.equal(languageFunctions.language(), "en");
+  assert.equal(languageFunctions.t("assistant"), "PokéCatch Assistant");
+  settings.language = "zh";
+  assert.equal(languageFunctions.t("startPush"), "开始推图");
+  settings.language = "en";
+  assert.equal(languageFunctions.t("startPush"), "Start story");
 });
 
 test("collection task buttons share one consistent layout and style", () => {
@@ -240,7 +275,7 @@ test("roaming legendary teams strongly prioritize level 90 or above with fallbac
   assert.ok(source.includes("recommendRoamingTeam(save, runtime.targetPlan.speciesId)"));
 });
 
-test("berry controls use in-game names followed by their effects", () => {
+test("berry controls provide Chinese and English names followed by their effects", () => {
   for (const label of [
     "蔓莓果（捕获率 ×1.25）",
     "金色蔓莓果（捕获率 ×1.5）",
@@ -250,6 +285,9 @@ test("berry controls use in-game names followed by their effects", () => {
     "兰萨果（金币 +25%）",
     "星桃果（野生异色 ×2）",
   ]) assert.ok(source.includes(label), `missing berry label: ${label}`);
+  for (const label of ["Razz Berry (catch rate ×1.25)", "Golden Razz Berry (catch rate ×1.5)", "Pinap Berry (battle XP +25%)"]) {
+    assert.ok(source.includes(label), `missing English berry label: ${label}`);
+  }
   assert.equal(source.includes('label: "经验果"'), false);
 });
 
@@ -262,7 +300,7 @@ test("expired berries renew independently using the game's clock and verify acti
   assert.ok(source.indexOf("await manageBerries(save)") < source.indexOf('if (runtime.mode === "idle" || runtime.paused)'));
   assert.ok(source.includes("const countBefore = Number(save.items?.[choice.key] || 0);"));
   assert.ok(source.includes("buff?.key === choice.key"));
-  assert.ok(source.includes('label: `${choice.info.label}生效`'));
+  assert.ok(source.includes('`${berryLabel(choice.info)}生效`'));
 });
 
 test("manual target input previews Pokedex numbers and names", () => {
@@ -289,7 +327,7 @@ test("automated page actions use randomized conservative pacing", () => {
   assert.ok(source.includes("runtime.lastAutomatedActionAt"));
   assert.ok(source.includes('await pacedClick(go, `章节${chapterIndex}进入按钮`)'));
   assert.ok(source.includes("await pacedClick(preset"));
-  assert.ok(source.includes("await pacedClick(button, choice.info.label)"));
+  assert.ok(source.includes("await pacedClick(button, berryLabel(choice.info))"));
   assert.equal((source.match(/\.click\(\)/g) || []).length, 1, "automated clicks must go through pacedClick");
   assert.ok(source.includes('await jitter(35, 85);'));
   assert.ok(source.includes('await jitter(450, 1_100);'));
@@ -306,7 +344,7 @@ test("local development uses vite-plugin-monkey", () => {
   assert.equal(packageJson.scripts.dev, "vite --host 127.0.0.1 --port 5173 --strictPort");
   assert.equal(packageJson.scripts.predev, "npm run build");
   assert.ok(packageJson.devDependencies["vite-plugin-monkey"]);
-  assert.ok(viteConfig.includes('name: "开发：PokeCatch 全图鉴与推图助手"'));
+  assert.ok(viteConfig.includes('name: "Dev: PokeCatch Assistant / 全图鉴与推图助手"'));
   assert.ok(viteConfig.includes("prefix: false"));
   assert.ok(viteConfig.includes('entry: "src/template.user.js"'));
 });

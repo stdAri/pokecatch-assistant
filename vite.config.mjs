@@ -43,10 +43,10 @@ export default defineConfig({
     monkey({
       entry: "src/template.user.js",
       userscript: {
-        name: "开发：PokeCatch 全图鉴与推图助手",
+        name: "Dev: PokeCatch Assistant / 全图鉴与推图助手",
         namespace: "local.pokecatch.assistant",
-        version: "0.2.3",
-        description: "推图、缺失图鉴、徘徊神兽、第五队和果子自动化。只读取游戏状态并通过正常界面点击操作。",
+        version: "0.3.0",
+        description: "Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。",
         match: [
           "https://pokecatch-online.netlify.app/*",
           "https://pokecatch-online.pages.dev/*",
