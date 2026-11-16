@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.5.1", () => {
-  assert.equal(packageJson.version, "0.5.1");
-  assert.ok(source.includes("// @version      0.5.1"));
-  assert.ok(source.includes('const VERSION = "0.5.1"'));
-  assert.ok(viteConfig.includes('version: "0.5.1"'));
+test("userscript and development metadata share version 0.5.2", () => {
+  assert.equal(packageJson.version, "0.5.2");
+  assert.ok(source.includes("// @version      0.5.2"));
+  assert.ok(source.includes('const VERSION = "0.5.2"'));
+  assert.ok(viteConfig.includes('version: "0.5.2"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -298,10 +298,11 @@ test("collection queue keeps region order and penalizes maps above the local tea
     > helpers.collectionPlanEfficiency(save, hardKantoPlan));
 });
 
-test("collection queue UI shows three automatic targets and waiting farms the strongest unlocked chapter", () => {
+test("collection queue UI shows at most five automatic targets and waiting farms the strongest unlocked chapter", () => {
   assert.ok(source.includes('id="pca-collection-queue"'));
   assert.ok(source.includes(".filter((plan) => !settings.manualTargets.includes(plan.speciesId))"));
-  assert.ok(source.includes(".slice(0, 3)"));
+  assert.ok(source.includes("const COLLECTION_QUEUE_LIMIT = 5;"));
+  assert.ok(source.includes(".slice(0, COLLECTION_QUEUE_LIMIT)"));
   assert.ok(source.includes("runtime.timer = setInterval(tick, 900)"));
   assert.ok(source.includes("Number(item?.until) > now ? 1 : 0"));
   assert.ok(source.includes("JSON.stringify(save.stats?.byReg || {})"));

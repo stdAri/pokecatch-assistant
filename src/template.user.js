@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.5.1
+// @version      0.5.2
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,9 +21,10 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.5.1";
+  const VERSION = "0.5.2";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
+  const COLLECTION_QUEUE_LIMIT = 5;
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
   const ROAMING_PREFERRED_LEVEL = 90;
@@ -2253,7 +2254,7 @@
     if (!root) return;
     const automatic = runtime.collectionQueue
       .filter((plan) => !settings.manualTargets.includes(plan.speciesId))
-      .slice(0, 3);
+      .slice(0, COLLECTION_QUEUE_LIMIT);
     if (!automatic.length) {
       const waiting = runtime.waitingPlan;
       root.innerHTML = waiting
