@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.3.1
+// @version      0.3.2
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.3.1";
+  const VERSION = "0.3.2";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -845,7 +845,24 @@
     return { type: "tracking" };
   }
 
-  function timelinePlanStatus(plan) {
+  function savedTimelinePlanStatus(save, plan) {
+    const nodes = Array.isArray(save?.adv?.nodes) ? save.adv.nodes : [];
+    const matchesZone = (node) => node?.name === plan.sourceZone || node?.name === plan.zone;
+    const relevant = nodes.map((node, index) => ({ node, index })).filter(({ node }) => matchesZone(node));
+    const wild = relevant.filter(({ node }) => node?.type === "wild");
+    return {
+      nodes,
+      relevant,
+      wild,
+      lastWild: wild.at(-1)?.index ?? -1,
+      current: Number.isInteger(save?.adv?.node) ? save.adv.node : -1,
+    };
+  }
+
+  function timelinePlanStatus(save, plan) {
+    const saved = savedTimelinePlanStatus(save, plan);
+    if (saved.lastWild >= 0) return saved;
+
     const nodes = [...document.querySelectorAll("#timeline .tl-node")];
     const matchesZone = (node) => {
       const title = node.title || "";
@@ -1108,7 +1125,7 @@
       return;
     }
 
-    const timeline = timelinePlanStatus(runtime.targetPlan);
+    const timeline = timelinePlanStatus(save, runtime.targetPlan);
     if (timeline.lastWild < 0) {
       await exclusive("本轮没有有效野生节点", () => resetChapter(runtime.targetPlan));
       return;
@@ -1667,6 +1684,19 @@
     renderPanel();
     offerResume();
     runtime.timer = setInterval(tick, 900);
+    const timeline = document.querySelector("#timeline");
+    if (timeline) {
+      let queued = false;
+      runtime.timelineObserver = new MutationObserver(() => {
+        if (queued || runtime.busy || runtime.paused || !["collect", "combined"].includes(runtime.mode)) return;
+        queued = true;
+        queueMicrotask(() => {
+          queued = false;
+          tick();
+        });
+      });
+      runtime.timelineObserver.observe(timeline, { subtree: true, attributes: true, attributeFilter: ["class"] });
+    }
     document.addEventListener("click", (event) => {
       if (runtime.mode === "idle" || runtime.busy || !event.isTrusted) return;
       const manualGo = event.target.closest?.(".mp-go[data-go]");

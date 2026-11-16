@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.3.1", () => {
-  assert.equal(packageJson.version, "0.3.1");
-  assert.ok(source.includes("// @version      0.3.1"));
-  assert.ok(source.includes('const VERSION = "0.3.1"'));
-  assert.ok(viteConfig.includes('version: "0.3.1"'));
+test("userscript and development metadata share version 0.3.2", () => {
+  assert.equal(packageJson.version, "0.3.2");
+  assert.ok(source.includes("// @version      0.3.2"));
+  assert.ok(source.includes('const VERSION = "0.3.2"'));
+  assert.ok(viteConfig.includes('version: "0.3.2"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -128,6 +128,31 @@ test("weather is calculated per chapter and applied to encounter tables", () => 
   assert.equal(weatherAt(steel, steelRoute39, "2026-11-16T19:30:00+08:00"), "rain");
   assert.equal(weatherAt(wing, wingRoute29, "2026-11-16T21:00:00+08:00", "night"), "rain");
   assert.equal(weatherAt(wing, wingRoute29, "2026-11-16T23:00:00+08:00", "night"), "storm");
+});
+
+test("collection route boundary follows saved nodes and stops after Route 34", () => {
+  const savedTimelinePlanStatus = sourceFunction("savedTimelinePlanStatus");
+  const plan = { zone: "34号道路", sourceZone: "Route 34" };
+  const nodes = [
+    { name: "Bois aux Chênes", type: "wild" },
+    { name: "Route 34", type: "trainer" },
+    { name: "Route 34", type: "wild" },
+    { name: "Route 34", type: "wild" },
+    { name: "Route 34", type: "wild" },
+    { name: "Route 35", type: "wild" },
+    { name: "Route 35", type: "trainer" },
+  ];
+
+  const onLastTargetNode = savedTimelinePlanStatus({ adv: { nodes, node: 4 } }, plan);
+  assert.equal(onLastTargetNode.lastWild, 4);
+  assert.equal(onLastTargetNode.current, 4);
+  assert.equal(onLastTargetNode.wild.length, 3);
+
+  const afterTargetRoute = savedTimelinePlanStatus({ adv: { nodes, node: 5 } }, plan);
+  assert.ok(afterTargetRoute.current > afterTargetRoute.lastWild);
+  assert.equal(afterTargetRoute.relevant.some(({ node }) => node.name === "Route 35"), false);
+  assert.ok(source.includes('runtime.timelineObserver = new MutationObserver'));
+  assert.ok(source.includes('timelinePlanStatus(save, runtime.targetPlan)'));
 });
 
 test("userscript never writes the game save key", () => {
