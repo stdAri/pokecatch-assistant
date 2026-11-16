@@ -4,7 +4,7 @@
 
 - 状态：已确认，可进入迭代开发
 - 首版目标：`v0.1.0 Beta`
-- 当前实现基线：`v0.5.0` 本地未提交工作区（基于远端 `main` 提交 `2739947b3203a4ebe1e7d60ae1324eb534d32bca`；尚未推送、未确认远端 CI，未创建 `v0.5.0` 标签或 Release）
+- 当前实现基线：`v0.5.0`（提交 `aef2325d5974b5b04c5cb43c2b39762ca856478d feat: advance story for pokedex collection` 已进入远端 `main`；尚未确认远端 CI 或正式存档实机验证，未创建 `v0.5.0` 标签或 Release）
 - 目标游戏：https://pokecatch-online.netlify.app/
 - 运行方式：Tampermonkey 用户脚本
 - 主要语言：简体中文
