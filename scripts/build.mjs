@@ -76,6 +76,9 @@ const encounters = evaluateLiteral(extractLiteral("a.ENCOUNTERS={", "{", "}"));
 const habitats = evaluateLiteral(extractLiteral("a.HABITATS={", "{", "}"));
 const weather = evaluateLiteral(extractLiteral("WEATHER:{", "{", "}"));
 const roamingWeather = evaluateLiteral(extractLiteral("MIN_LEVEL:100,WEATHER:{", "{", "}"));
+const shinyStatBonus = Number(bundle.match(/SHINY_STAT_BONUS:([.\d]+)/)?.[1]);
+const undergroundStats = bundle.match(/RANK_MAX:(\d+),RANK_STAT:([.\d]+)/);
+if (!Number.isFinite(shinyStatBonus) || !undergroundStats) throw new Error("stat bonus constants not found");
 const forms = evaluateLiteral(extractLiteral("a.FORMS=function(){const h=[", "[", "]"));
 const specialZones = evaluateLiteral(
   extractLiteralFrom('Pe=[{id:145,weather:"storm"', "[", "]"),
@@ -246,6 +249,9 @@ const gameData = {
   weather: compactWeather,
   roamingWeather,
   specialZones: compactSpecialZones,
+  shinyStatBonus,
+  rankMax: Number(undergroundStats[1]),
+  rankStatMultiplier: Number(undergroundStats[2]),
 };
 
 if (!template.includes("/*__GAME_DATA__*/")) throw new Error("template placeholder missing");

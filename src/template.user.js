@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.5.3
+// @version      0.7.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.5.3";
+  const VERSION = "0.7.0";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -40,10 +40,17 @@
     "rowap-berry": { family: "roam", zh: "雾莲果（徘徊宝可梦停留 30 分钟）", en: "Rowap Berry (roamers stay for 30 min)" },
   };
 
+  const PENSION_BERRIES = {
+    "berry-oran": { zh: "橙橙果", en: "Oran Berry", effectZh: "培育屋产蛋进度 +5 分钟", effectEn: "Day Care egg progress +5 min" },
+    "berry-pecha": { zh: "桃桃果", en: "Pecha Berry", effectZh: "培育屋产蛋进度 +15 分钟", effectEn: "Day Care egg progress +15 min" },
+    "berry-sitrus": { zh: "文柚果", en: "Sitrus Berry", effectZh: "培育屋产蛋进度 +30 分钟", effectEn: "Day Care egg progress +30 min" },
+    "belue-berry": { zh: "靛莓果", en: "Belue Berry", effectZh: "百变怪下一颗蛋的异色率 ×2", effectEn: "Ditto's next egg Shiny rate ×2" },
+  };
+
   const TEXT = {
     zh: {
-      assistant: "PokéCatch 助手", auto: "跟随游戏", expand: "展开", collapse: "收起",
-      pushTab: "推图", collectTab: "收集", teamTab: "阵容", berriesTab: "果子", diagnosticsTab: "诊断",
+      assistant: "PokéCatch 助手", auto: "跟随游戏", expand: "打开助手", collapse: "关闭", floatWindow: "浮动窗口", dockWindow: "回到顶部", progress: "进度",
+      pushTab: "推图", collectTab: "收集", trainingTab: "培养", teamTab: "阵容", berriesTab: "果子", diagnosticsTab: "诊断",
       startPush: "开始推图", pauseResume: "暂停/继续", stop: "停止",
       pushNote: "从当前地区的剧情前沿持续推进；推图期间不会追踪神兽。",
       selectCollection: "选择收集任务", dexCollection: "普通图鉴收集", roamOnly: "仅追踪神兽", combined: "普通 + 神兽协同",
@@ -57,11 +64,18 @@
       storyLocked: "剧情尚未解锁",
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
+      trainingTitle: "培养候选池", trainingEnable: "启用候选池，自动配队只从已勾选的个体中选择",
+      trainingPower: "最低综合能力值", trainingPowerHelp: "综合能力值 = 当前形态六项种族值总和 × 异色加成 × 地下强化加成。它只用于筛选培养对象，不代表胜率；填 0 表示不设门槛。",
+      trainingEligible: "只显示当前地区可出战成员", trainingSearch: "搜索名称或图鉴编号",
+      trainingSelectVisible: "全选当前结果", trainingSelectTeam: "选入当前队伍", trainingClear: "清空选择", trainingRefresh: "刷新列表",
+      trainingSave: "保存候选池", trainingReset: "撤销未保存", trainingNoSave: "进入游戏并创建存档后即可配置培养候选池。",
+      trainingDisabled: "候选池未启用，自动配队仍使用全部当前可出战成员。",
       duplicateKeepTitle: "重复宝可梦保留", enableDuplicateKeeps: "全部开启", disableDuplicateKeeps: "全部关闭", cancelDuplicateKeeps: "取消批量操作",
       duplicateKeepRegions: "处理地区",
       duplicateKeepNote: "逐编号检查当前可访问、可重复获取的非传说宝可梦；已符合目标状态的编号会跳过。游戏实际按进化家族共享开关，异色与普通个体也共用设置。重复宝可梦会少一次约3级的家族经验。",
       duplicateKeepIdle: "尚未执行", duplicateKeepConfirmOn: "逐编号检查并为选中地区的宝可梦开启“保留重复”？", duplicateKeepConfirmOff: "逐编号检查并关闭选中地区宝可梦的“保留重复”？",
       berryTitle: "战斗增益果子（全部默认关闭）", reserve: "最低保留数量", berryNote: "右侧数字为最低保留量；普通与金色捕获果同时开启时优先金色。",
+      stock: "库存", pensionBerryTitle: "培育屋专用果子", pensionBerryButton: "前往培育屋使用", pensionBerryNote: "这些果子只显示效果和库存，需要在培育屋满足条件时手动使用；助手不会自动消耗。",
       notifications: "通知", sound: "页面提示音", desktop: "桌面通知", diagnostic: "诊断", noError: "无异常", copyDiagnostic: "复制诊断", logs: "日志",
       statusTitle: "当前任务状态", task: "任务", target: "目标", place: "位置", attempts: "尝试", buffs: "增益", fifthTeam: "第五队", idle: "空闲", notGenerated: "未生成",
       notAppeared: "未出现", caught: "已捕获", appearing: "出现中", minutes: "分", moveUp: "上移", moveDown: "下移",
@@ -72,8 +86,8 @@
       waitingRoamers: "等待雷公、炎帝或水君出现", paused: "暂停", working: "操作中", cumulative: "累计", suggestion: "建议", game: "游戏", data: "数据",
     },
     en: {
-      assistant: "PokéCatch Assistant", auto: "Follow game", expand: "Expand", collapse: "Collapse",
-      pushTab: "Story", collectTab: "Collect", teamTab: "Team", berriesTab: "Berries", diagnosticsTab: "Diagnostics",
+      assistant: "PokéCatch Assistant", auto: "Follow game", expand: "Open assistant", collapse: "Close", floatWindow: "Float window", dockWindow: "Dock to top", progress: "Progress",
+      pushTab: "Story", collectTab: "Collect", trainingTab: "Training", teamTab: "Team", berriesTab: "Berries", diagnosticsTab: "Diagnostics",
       startPush: "Start story", pauseResume: "Pause / Resume", stop: "Stop",
       pushNote: "Continue from the current region's story frontier; roaming legendaries are not tracked in Story mode.",
       selectCollection: "Choose a collection task", dexCollection: "Pokédex collection", roamOnly: "Roamers only", combined: "Pokédex + roamers",
@@ -87,11 +101,18 @@
       storyLocked: "Story not yet unlocked",
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
+      trainingTitle: "Training candidate pool", trainingEnable: "Enable the pool; automatic teams only use checked individuals",
+      trainingPower: "Minimum combined stat value", trainingPowerHelp: "Combined stat value = the current form's six base stats × Shiny bonus × Underground rank bonus. It filters training candidates; it is not a win rate. Use 0 for no threshold.",
+      trainingEligible: "Only show members usable in the current region", trainingSearch: "Search name or Pokédex number",
+      trainingSelectVisible: "Select visible", trainingSelectTeam: "Add current team", trainingClear: "Clear", trainingRefresh: "Refresh",
+      trainingSave: "Save candidate pool", trainingReset: "Discard draft", trainingNoSave: "Enter the game and create a save before configuring training candidates.",
+      trainingDisabled: "The candidate pool is off; automatic teams use every currently available member.",
       duplicateKeepTitle: "Keep duplicates", enableDuplicateKeeps: "Enable all", disableDuplicateKeeps: "Disable all", cancelDuplicateKeeps: "Cancel bulk action",
       duplicateKeepRegions: "Regions to process",
       duplicateKeepNote: "Checks each accessible, repeatable non-Legendary Pokédex number and skips entries already in the requested state. The game shares this setting across an evolution family and between Shiny and regular Pokemon. One duplicate worth about three family levels is retained.",
       duplicateKeepIdle: "Not run", duplicateKeepConfirmOn: "Check every accessible Pokédex number in the selected regions and enable Keep duplicates?", duplicateKeepConfirmOff: "Check every accessible Pokédex number in the selected regions and disable Keep duplicates?",
       berryTitle: "Battle berries (all off by default)", reserve: "Minimum reserve", berryNote: "The number on the right is the reserve. Golden Razz is preferred when both catch berries are enabled.",
+      stock: "Stock", pensionBerryTitle: "Day Care berries", pensionBerryButton: "Open Day Care", pensionBerryNote: "These berries show their effects and stock here, but must be used manually in the Day Care. The assistant never auto-consumes them.",
       notifications: "Notifications", sound: "Page sound", desktop: "Desktop notifications", diagnostic: "Diagnostics", noError: "No errors", copyDiagnostic: "Copy diagnostics", logs: "Logs",
       statusTitle: "Current task", task: "Mode", target: "Target", place: "Location", attempts: "Attempts", buffs: "Buffs", fifthTeam: "Team 5", idle: "Idle", notGenerated: "Not generated",
       notAppeared: "Not active", caught: "Caught", appearing: "Active", minutes: "min", moveUp: "Move up", moveDown: "Move down",
@@ -104,11 +125,13 @@
   };
 
   const DEFAULT_SETTINGS = {
-    collapsed: false,
+    collapsed: true,
+    floating: false,
+    floatPosition: null,
     language: "auto",
     activeTab: "push",
-    panelPosition: null,
     lockTeam5: false,
+    candidatePool: { enabled: false, minPower: 500, uids: [] },
     desktopNotifications: false,
     soundNotifications: true,
     regionScope: "current",
@@ -146,7 +169,7 @@
     timer: null,
     chapterReset: null,
     lastAutomatedActionAt: 0,
-    panelResizeBound: false,
+    floatResizeBound: false,
     duplicateKeep: null,
     collectionQueue: [],
     collectionQueueSignature: "",
@@ -154,6 +177,7 @@
   };
 
   let settings = loadSettings();
+  let candidatePoolDraft = null;
 
   function language() {
     if (settings.language === "zh" || settings.language === "en") return settings.language;
@@ -168,6 +192,14 @@
     return info?.[language()] || info?.zh || "";
   }
 
+  function pensionBerryLabel(info) {
+    return info?.[language()] || info?.zh || "";
+  }
+
+  function pensionBerryEffect(info) {
+    return language() === "en" ? info?.effectEn : info?.effectZh;
+  }
+
   function mergeDeep(base, value) {
     const output = { ...base };
     for (const [key, item] of Object.entries(value || {})) {
@@ -180,7 +212,9 @@
 
   function loadSettings() {
     try {
-      return mergeDeep(DEFAULT_SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"));
+      const loaded = mergeDeep(DEFAULT_SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"));
+      loaded.candidatePool = normalizeCandidatePool(loaded.candidatePool);
+      return loaded;
     } catch {
       return structuredClone(DEFAULT_SETTINGS);
     }
@@ -341,6 +375,39 @@
     return buff?.until > now ? buff : null;
   }
 
+  function baseStatTotal(id) {
+    return (species(id)?.s || []).reduce((sum, value) => sum + Number(value || 0), 0);
+  }
+
+  function undergroundRank(mon) {
+    return Math.min(DATA.rankMax, Math.max(0, Math.floor(Number(mon?.rank) || 0)));
+  }
+
+  function combinedStatMultiplier(mon) {
+    return (mon?.shiny ? 1 + DATA.shinyStatBonus : 1) * DATA.rankStatMultiplier ** undergroundRank(mon);
+  }
+
+  function combinedStatValue(mon) {
+    return Number((baseStatTotal(mon.id) * combinedStatMultiplier(mon)).toFixed(8));
+  }
+
+  function combinedStatNote(mon) {
+    const parts = [language() === "en" ? `base stats ${baseStatTotal(mon.id)}` : `六项种族值 ${baseStatTotal(mon.id)}`];
+    if (mon.shiny) parts.push(language() === "en" ? `Shiny +${Math.round(DATA.shinyStatBonus * 100)}%` : `异色 +${Math.round(DATA.shinyStatBonus * 100)}%`);
+    if (undergroundRank(mon)) parts.push(language() === "en" ? `Underground rank ${undergroundRank(mon)}` : `地下强化 ${undergroundRank(mon)} 档`);
+    return parts.join(" · ");
+  }
+
+  function normalizeCandidatePool(value) {
+    if (!value || typeof value !== "object") value = {};
+    const numeric = Number(value.minPower ?? value.minBst ?? 500);
+    return {
+      enabled: value.enabled === true,
+      minPower: Number.isFinite(numeric) ? Math.max(0, Math.min(2_000, Math.trunc(numeric))) : 500,
+      uids: [...new Set((Array.isArray(value.uids) ? value.uids : []).map(String).filter(Boolean))],
+    };
+  }
+
   function typeEffect(attackType, defenderTypes) {
     const row = DATA.typeChart[attackType] || {};
     return (defenderTypes || []).reduce((value, type) => value * (row[type] ?? 1), 1);
@@ -368,7 +435,8 @@
     const meta = species(mon.id);
     if (!meta) return { score: -Infinity, reason: "缺少资料" };
     const stats = meta.s;
-    const bst = stats.reduce((sum, value) => sum + value, 0);
+    const power = combinedStatValue(mon);
+    const statMultiplier = combinedStatMultiplier(mon);
     const moves = learnedMoves(meta, mon.level);
     const enemyList = enemies.length ? enemies : [{ t: ["normal"], s: [50, 50, 50, 50, 50, 50] }];
 
@@ -389,11 +457,11 @@
     const continuity = continuitySet.has(mon.uid) ? 18 : 0;
     const levelContribution = Math.min(100, mon.level) * levelWeight;
     const preferredLevelScore = roamingLevelPriorityScore(mon.level, preferredLevel);
-    const score = bst * 0.21 + offense * 0.82 + defense * 34 + stats[5] * 0.08
+    const score = power * 0.21 + offense * 0.82 + defense * 34 + stats[5] * statMultiplier * 0.08
       + levelContribution + preferredLevelScore + continuity - samePrimary * 16;
     return {
       score,
-      reason: `能力${bst} · 克制${offense.toFixed(0)} · 防守${defense.toFixed(2)} · Lv.${mon.level}`,
+      reason: `${language() === "en" ? "Combined stats" : "综合能力"}${power}（${combinedStatNote(mon)}） · ${language() === "en" ? "offense" : "克制"}${offense.toFixed(0)} · ${language() === "en" ? "defense" : "防守"}${defense.toFixed(2)} · Lv.${mon.level}`,
     };
   }
 
@@ -404,7 +472,7 @@
   } = {}) {
     const enemies = enemyProfiles(enemyIds);
     const currentFive = new Set(save.teamSets?.list?.[4] || save.team || []);
-    const candidates = availableTeamCandidates(save);
+    const candidates = teamCandidatesForRecommendation(save);
     const selected = [];
     const details = [];
     while (selected.length < 6 && selected.length < candidates.length) {
@@ -701,8 +769,15 @@
     return (save?.mons || []).filter((mon) => mon?.uid && mon.level > 0 && isMonAvailableInCurrentRegion(save, mon));
   }
 
+  function teamCandidatesForRecommendation(save, config = settings.candidatePool) {
+    const pool = normalizeCandidatePool(config);
+    if (!pool.enabled) return availableTeamCandidates(save);
+    const selected = new Set(pool.uids);
+    return availableTeamCandidates(save).filter((mon) => selected.has(String(mon.uid)) && combinedStatValue(mon) + 1e-9 >= pool.minPower);
+  }
+
   function requiredTeamSize(save) {
-    return Math.min(6, availableTeamCandidates(save).length);
+    return Math.min(6, teamCandidatesForRecommendation(save).length);
   }
 
   function duplicateKeepCandidates(save, regions = settings.duplicateKeepRegions) {
@@ -1708,10 +1783,8 @@
     }
   }
 
-  async function manageBerries(save) {
-    if (Date.now() - runtime.lastBerryCheckAt < 5_000) return;
-    runtime.lastBerryCheckAt = Date.now();
-    const gameNow = Number(save.lastTick) || Date.now();
+  function berryUseCandidates(save, now = Number(save.lastTick) || Date.now()) {
+    const choices = [];
     const enabled = Object.entries(settings.berries).filter(([, config]) => config.enabled);
     const byFamily = new Map();
     for (const [key, config] of enabled) {
@@ -1723,21 +1796,31 @@
     }
 
     for (const [family, options] of byFamily) {
-      const active = activeBuffAt(save, family, gameNow);
-      if (active) continue;
+      const active = save.buffs?.[family];
+      const activeOnCurrentSide = active?.until > now && !(active.side === "from" && save.link?.side === "to");
+      if (activeOnCurrentSide) continue;
       options.sort((a, b) => Number(b.key === "golden-razz-berry") - Number(a.key === "golden-razz-berry"));
       const choice = options.find(({ key, config }) => Number(save.items?.[key] || 0) > Number(config.reserve || 0));
-      if (!choice) continue;
+      if (choice) choices.push({ ...choice, family });
+    }
+    return choices;
+  }
+
+  async function manageBerries(save) {
+    if (Date.now() - runtime.lastBerryCheckAt < 5_000) return;
+    runtime.lastBerryCheckAt = Date.now();
+    for (const choice of berryUseCandidates(save)) {
       const button = document.querySelector(`#bag-panel .bag-cell[data-k="${choice.key}"]`);
       if (!button) {
         log(`${language() === "en" ? "Enabled" : "已启用"}${language() === "en" ? ` ${berryLabel(choice.info)}, but its page button is unavailable` : `${berryLabel(choice.info)}，但页面没有对应按钮`}`, "error");
         continue;
       }
+      if (button.disabled || button.getAttribute("aria-disabled") === "true") continue;
       const countBefore = Number(save.items?.[choice.key] || 0);
       await pacedClick(button, berryLabel(choice.info));
       await waitFor(() => {
         const current = readSave();
-        const buff = activeBuffAt(current, family);
+        const buff = activeBuffAt(current, choice.family);
         return Number(current.items?.[choice.key] || 0) < countBefore && buff?.key === choice.key;
       }, { timeout: 5_000, label: language() === "en" ? `${berryLabel(choice.info)} activation` : `${berryLabel(choice.info)}生效` });
       log(language() === "en" ? `Auto-used: ${berryLabel(choice.info)}` : `自动使用：${berryLabel(choice.info)}`);
@@ -1966,16 +2049,108 @@
     if (root) root.innerHTML = manualTargetPreviewHtml(value);
   }
 
+  function getCandidatePoolDraft() {
+    if (!candidatePoolDraft) {
+      const saved = normalizeCandidatePool(settings.candidatePool);
+      candidatePoolDraft = { ...saved, uids: [...saved.uids], query: "", onlyEligible: true };
+    }
+    return candidatePoolDraft;
+  }
+
+  function candidatePoolRows(save, draft = getCandidatePoolDraft()) {
+    const query = String(draft.query || "").normalize("NFKC").toLocaleLowerCase();
+    const selected = new Set(draft.uids.map(String));
+    return (save.mons || [])
+      .filter((mon) => mon?.uid && species(mon.id) && mon.level > 0)
+      .map((mon) => ({
+        mon,
+        uid: String(mon.uid),
+        name: species(mon.id).n,
+        number: speciesDisplayNumber(mon.id),
+        power: combinedStatValue(mon),
+        note: combinedStatNote(mon),
+        eligible: isMonAvailableInCurrentRegion(save, mon),
+        checked: selected.has(String(mon.uid)),
+      }))
+      .filter((row) => row.power + 1e-9 >= draft.minPower
+        && (!draft.onlyEligible || row.eligible)
+        && (!query || `${row.name} ${row.number} ${row.mon.id}`.normalize("NFKC").toLocaleLowerCase().includes(query)))
+      .sort((a, b) => b.power - a.power || b.mon.level - a.mon.level || a.mon.id - b.mon.id);
+  }
+
+  function renderCandidatePool() {
+    const list = document.querySelector("#pca-training-list");
+    const summary = document.querySelector("#pca-training-summary");
+    const active = document.querySelector("#pca-training-active");
+    if (!list || !summary || !active) return;
+    let save;
+    try {
+      save = readSave();
+    } catch {
+      list.innerHTML = `<div class="pca-note">${escapeHtml(t("trainingNoSave"))}</div>`;
+      summary.textContent = "";
+      active.textContent = t("trainingDisabled");
+      return;
+    }
+    const draft = getCandidatePoolDraft();
+    const rows = candidatePoolRows(save, draft);
+    list.innerHTML = rows.length ? rows.map((row) => `<label class="pca-training-mon${row.eligible ? "" : " unavailable"}"><input type="checkbox" data-candidate-uid="${escapeHtml(row.uid)}" ${row.checked ? "checked" : ""}><span><b>${row.mon.shiny ? "★ " : ""}${escapeHtml(row.name)}</b><small>#${escapeHtml(row.number)} · Lv.${row.mon.level} · ${language() === "en" ? "combined" : "综合能力"} ${row.power}<br>${escapeHtml(row.note)}${row.eligible ? "" : `<br>${language() === "en" ? "Unavailable in current region" : "当前地区不可出战"}`}</small></span></label>`).join("") : `<div class="pca-note">${language() === "en" ? "No members match these filters." : "没有符合当前筛选条件的宝可梦。"}</div>`;
+    const selected = draft.uids.length;
+    const eligible = teamCandidatesForRecommendation(save, { ...draft, enabled: true }).length;
+    summary.textContent = language() === "en"
+      ? `${rows.length} shown · ${selected} selected · ${eligible} currently eligible${draft.enabled && eligible < 6 ? " · teams use the available count without filling from outside the pool" : ""}`
+      : `显示${rows.length}只 · 已选${selected}只 · 当前合格${eligible}只${draft.enabled && eligible < 6 ? " · 不足六只时按实际人数配队，不从池外补足" : ""}`;
+    const saved = normalizeCandidatePool(settings.candidatePool);
+    active.textContent = saved.enabled
+      ? (language() === "en" ? `Active: ${saved.uids.length} checked individuals, combined stat value ≥ ${saved.minPower}.` : `当前生效：限定已保存的${saved.uids.length}只个体，综合能力值 ≥ ${saved.minPower}。`)
+      : t("trainingDisabled");
+  }
+
+  function candidatePoolSelectionAction(action) {
+    const save = readSave();
+    const draft = getCandidatePoolDraft();
+    if (action === "training-reset") {
+      const saved = normalizeCandidatePool(settings.candidatePool);
+      candidatePoolDraft = { ...saved, uids: [...saved.uids], query: "", onlyEligible: true };
+    } else if (action === "training-clear") draft.uids = [];
+    else if (action === "training-visible") draft.uids = [...new Set([...draft.uids, ...candidatePoolRows(save, draft).map((row) => row.uid)])];
+    else if (action === "training-team") draft.uids = [...new Set([...draft.uids, ...(save.team || []).map(String)])];
+    renderCandidatePool();
+  }
+
+  function saveCandidatePool() {
+    if (runtime.busy) {
+      log(language() === "en" ? "Wait for the current team operation before saving the candidate pool." : "正在配队，请等待当前操作结束后再保存候选池");
+      return false;
+    }
+    settings.candidatePool = normalizeCandidatePool(getCandidatePoolDraft());
+    candidatePoolDraft = { ...settings.candidatePool, uids: [...settings.candidatePool.uids], query: "", onlyEligible: true };
+    saveSettings();
+    runtime.teamPlan = null;
+    runtime.userTeamOverride = false;
+    runtime.failureTeams.clear();
+    runtime.deathSeries.clear();
+    log(settings.candidatePool.enabled
+      ? (language() === "en" ? `Saved ${settings.candidatePool.uids.length} training candidates.` : `已保存培养候选池：${settings.candidatePool.uids.length}只个体`)
+      : (language() === "en" ? "Candidate pool disabled." : "已关闭培养候选池限制"));
+    renderCandidatePool();
+    return true;
+  }
+
   function renderPanel() {
     document.getElementById(PANEL_ID)?.remove();
     document.getElementById(`${PANEL_ID}-style`)?.remove();
     const style = document.createElement("style");
     style.id = `${PANEL_ID}-style`;
     style.textContent = `
-      #${PANEL_ID}{position:fixed;right:14px;bottom:14px;width:min(360px,calc(100vw - 28px));max-height:82vh;z-index:2147483646;color:#eef2ff;background:#151827;border:1px solid #46506c;border-radius:14px;box-shadow:0 14px 42px #0009;font:13px/1.45 system-ui,-apple-system,"PingFang SC",sans-serif;overflow:hidden}
+      .topbar .tb-sep.pca-host{display:flex;align-items:center;justify-content:center;min-width:0}
+      #${PANEL_ID}{width:min(100%,620px);min-width:0;color:#eef2ff;font:13px/1.45 system-ui,-apple-system,"PingFang SC",sans-serif}
       #${PANEL_ID} *{box-sizing:border-box}#${PANEL_ID} button,#${PANEL_ID} select,#${PANEL_ID} input{font:inherit}
-      .pca-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#20253a;border-bottom:1px solid #343b56;cursor:move;touch-action:none;user-select:none}.pca-head b{flex:1}.pca-head button{cursor:pointer}.pca-ver{color:#8ea0ca;font-size:11px}
-      .pca-body{overflow:auto;max-height:calc(82vh - 46px)}#${PANEL_ID}.collapsed .pca-body{display:none}#${PANEL_ID}.collapsed{width:min(245px,calc(100vw - 28px))}
+      .pca-native-bar{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto auto;align-items:center;gap:8px;width:100%;height:44px;padding:0 10px;border:2px solid var(--line,#343b56);border-radius:var(--r-md,12px);background:var(--panel-2,#20253a);color:var(--text,#eef2ff);cursor:pointer;transition:border-color .15s,background .15s}.pca-native-bar:hover{border-color:var(--line-hover,#536080);background:var(--panel-3,#2b3350)}.pca-native-brand{font-weight:700;white-space:nowrap}.pca-native-item{min-width:0;color:var(--muted,#8fa0c6);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pca-native-item b{color:var(--text,#eef2ff);margin-left:4px}.pca-native-open{color:var(--muted,#8fa0c6);font-size:12px;white-space:nowrap}
+      .pca-modal{display:none;position:fixed;inset:0;z-index:2147483646;align-items:center;justify-content:center;padding:24px}.pca-modal-shade{position:absolute;inset:0;border:0;background:#050711b8;cursor:default}.pca-dialog{position:relative;width:min(620px,calc(100vw - 32px));max-height:min(82vh,760px);display:flex;flex-direction:column;background:#151827;border:1px solid #46506c;border-radius:14px;box-shadow:0 20px 60px #000b;overflow:hidden}#${PANEL_ID}:not(.collapsed) .pca-modal{display:flex}
+      #${PANEL_ID}.floating .pca-modal{pointer-events:none;padding:0}#${PANEL_ID}.floating .pca-modal-shade{display:none}#${PANEL_ID}.floating .pca-dialog{position:fixed;pointer-events:auto;max-height:calc(100vh - 24px)}#${PANEL_ID}.floating .pca-head{cursor:move;touch-action:none}
+      .pca-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#20253a;border-bottom:1px solid #343b56;user-select:none}.pca-head b{flex:1}.pca-head button{cursor:pointer}.pca-ver{color:#8ea0ca;font-size:11px}
+      .pca-body{overflow:auto;min-height:0}.pca-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px;padding:8px 12px;background:#181d2d;border-bottom:1px solid #343b56}.pca-summary span{color:#8fa0c6;min-width:0}.pca-summary b{color:#eef2ff;margin-left:5px}.pca-summary-main{display:contents}.pca-summary-extra{display:contents}
       .pca-tabs{display:flex;overflow-x:auto;background:#181c2c;border-bottom:1px solid #343b56;padding:0 6px}.pca-tab{flex:0 0 auto;border:0;border-bottom:2px solid transparent;background:transparent;color:#94a3c8;padding:9px 8px;cursor:pointer}.pca-tab:hover{color:#dbe5ff}.pca-tab.active{color:#fff;border-bottom-color:#6f9cff;background:#20263a}
       .pca-tabpanel{display:none;padding:10px 12px}.pca-tabpanel.active{display:block}
       .pca-row{display:flex;gap:7px;align-items:center;margin:7px 0}.pca-row>*{min-width:0}.pca-grow{flex:1}
@@ -1989,22 +2164,26 @@
       .pca-queue-title{margin-top:10px!important}
       .pca-task-grid{display:grid;grid-template-columns:1fr;gap:7px}.pca-task-btn{width:100%;min-height:36px}.pca-controls .pca-btn{flex:1}
       .pca-region-list{flex-wrap:wrap}
+      #${PANEL_ID}.training-open .pca-dialog{width:min(780px,calc(100vw - 32px))}.pca-training-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:5px;max-height:38vh;overflow:auto;margin:8px 0}.pca-training-mon{display:flex;align-items:flex-start;gap:6px;padding:7px;background:#111827;border:1px solid #3a4560;border-radius:8px;cursor:pointer}.pca-training-mon:has(input:checked){border-color:#75a2ff;background:#243556}.pca-training-mon.unavailable{opacity:.65}.pca-training-mon small{display:block;color:#a4b3d1;font-size:11px;margin-top:3px}.pca-training-min{width:82px}
+      @media(max-width:900px){.pca-native-brand{display:none}.pca-native-bar{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto}}
+      @media(max-width:640px){.topbar .tb-sep.pca-host{flex:0 1 auto}.pca-native-bar{grid-template-columns:minmax(0,1fr) auto;max-width:210px}.pca-native-target,.pca-native-progress{display:none}.pca-native-open{font-size:0}.pca-native-open:after{content:"⚙";font-size:16px}.pca-modal{padding:10px}.pca-dialog,#${PANEL_ID}.training-open .pca-dialog{width:calc(100vw - 20px);max-height:calc(100vh - 20px)}}
     `;
     document.head.append(style);
 
     const panel = document.createElement("section");
     panel.id = PANEL_ID;
-    panel.className = settings.collapsed ? "collapsed" : "";
+    panel.className = `${settings.collapsed ? "collapsed" : ""}${settings.floating ? " floating" : ""}${settings.activeTab === "training" ? " training-open" : ""}`;
     panel.innerHTML = `
-      <div class="pca-head"><b>${t("assistant")}</b><select class="pca-select pca-lang" data-select-setting="language" aria-label="Language"><option value="auto" ${settings.language === "auto" ? "selected" : ""}>${t("auto")}</option><option value="zh" ${settings.language === "zh" ? "selected" : ""}>中文</option><option value="en" ${settings.language === "en" ? "selected" : ""}>English</option></select><span class="pca-ver">v${VERSION}</span><button class="pca-btn" data-act="collapse">${settings.collapsed ? t("expand") : t("collapse")}</button></div>
-      <div class="pca-body">
+      <button type="button" class="pca-native-bar" data-act="collapse" aria-expanded="${!settings.collapsed}" aria-label="${t("expand")}"><span class="pca-native-brand">PokéCatch</span><span class="pca-native-item">${t("task")}<b data-status="mode">${t("idle")}</b></span><span class="pca-native-item pca-native-target">${t("target")}<b data-status="target">—</b></span><span class="pca-native-item pca-native-progress">${t("progress")}<b data-status="attempts">0</b></span><span class="pca-native-open">${t("expand")}</span></button>
+      <div class="pca-modal"><button type="button" class="pca-modal-shade" data-act="collapse" aria-label="${t("collapse")}"></button><section class="pca-dialog" role="dialog" aria-modal="${!settings.floating}" aria-label="${t("assistant")}">
+      <div class="pca-head"><b>${t("assistant")}</b><select class="pca-select pca-lang" data-select-setting="language" aria-label="Language"><option value="auto" ${settings.language === "auto" ? "selected" : ""}>${t("auto")}</option><option value="zh" ${settings.language === "zh" ? "selected" : ""}>中文</option><option value="en" ${settings.language === "en" ? "selected" : ""}>English</option></select><span class="pca-ver">v${VERSION}</span><button class="pca-btn" data-act="float">${settings.floating ? t("dockWindow") : t("floatWindow")}</button><button class="pca-btn" data-act="collapse">${t("collapse")}</button></div>
+      ${statusSummaryHtml()}<div class="pca-body">
         <div class="pca-tabs" role="tablist" aria-label="${t("assistant")}">
-          ${[["push",t("pushTab")],["collect",t("collectTab")],["team",t("teamTab")],["berries",t("berriesTab")],["diagnostics",t("diagnosticsTab")]].map(([key,label]) => `<button class="pca-tab ${settings.activeTab === key ? "active" : ""}" type="button" role="tab" aria-selected="${settings.activeTab === key}" data-tab="${key}">${label}</button>`).join("")}
+          ${[["push",t("pushTab")],["collect",t("collectTab")],["training",t("trainingTab")],["team",t("teamTab")],["berries",t("berriesTab")],["diagnostics",t("diagnosticsTab")]].map(([key,label]) => `<button class="pca-tab ${settings.activeTab === key ? "active" : ""}" type="button" role="tab" aria-selected="${settings.activeTab === key}" data-tab="${key}">${label}</button>`).join("")}
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "push" ? "active" : ""}" role="tabpanel" data-tabpanel="push">
           <div class="pca-row"><button class="pca-btn primary pca-grow" data-act="push">${t("startPush")}</button><button class="pca-btn pca-grow" data-act="pause">${t("pauseResume")}</button><button class="pca-btn danger" data-act="stop">${t("stop")}</button></div>
           <div class="pca-note">${t("pushNote")}</div>
-          ${statusCardHtml()}
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "collect" ? "active" : ""}" role="tabpanel" data-tabpanel="collect">
           <div class="pca-card"><h4>${t("selectCollection")}</h4>
@@ -2012,7 +2191,6 @@
             <div class="pca-row pca-controls"><button class="pca-btn" data-act="pause">${t("pauseResume")}</button><button class="pca-btn danger" data-act="stop">${t("stop")}</button></div>
             <div class="pca-note">${t("collectionNote")}</div>
           </div>
-          ${statusCardHtml()}
           <div class="pca-card"><h4>${t("ordinaryTargets")}</h4>
             <div class="pca-row"><span>${t("region")}</span><select class="pca-select pca-grow" data-select-setting="regionScope"><option value="current" ${settings.regionScope === "current" ? "selected" : ""}>${t("currentRegion")}</option><option value="all" ${settings.regionScope === "all" ? "selected" : ""}>${t("allRegions")}</option><option value="custom" ${settings.regionScope === "custom" ? "selected" : ""}>${t("customRegions")}</option></select></div>
             <div class="pca-row pca-note">${[["kanto",t("kanto")],["johto",t("johto")],["hoenn",t("hoenn")],["sinnoh",t("sinnoh")],["unova",t("unova")]].map(([key,label])=>`<label><input type="checkbox" data-region="${key}" ${settings.customRegions.includes(key)?"checked":""}>${label}</label>`).join(" ")}</div>
@@ -2030,6 +2208,18 @@
             <div id="pca-roaming-priority">${roamingPriorityHtml()}</div>
           </div>
         </div>
+        <div class="pca-tabpanel ${settings.activeTab === "training" ? "active" : ""}" role="tabpanel" data-tabpanel="training">
+          <div class="pca-card"><h4>${t("trainingTitle")}</h4>
+            <label class="pca-row"><input id="pca-training-enable" type="checkbox" ${getCandidatePoolDraft().enabled ? "checked" : ""}>${t("trainingEnable")}</label>
+            <div class="pca-row"><label for="pca-training-min">${t("trainingPower")}</label><input id="pca-training-min" class="pca-select pca-training-min" type="number" min="0" max="2000" step="1" value="${getCandidatePoolDraft().minPower}"></div>
+            <div class="pca-note">${t("trainingPowerHelp")}</div>
+            <input id="pca-training-search" class="pca-select" style="width:100%;margin-top:7px" placeholder="${t("trainingSearch")}" value="${escapeHtml(getCandidatePoolDraft().query)}">
+            <label class="pca-row"><input id="pca-training-eligible" type="checkbox" ${getCandidatePoolDraft().onlyEligible ? "checked" : ""}>${t("trainingEligible")}</label>
+            <div class="pca-row pca-region-list"><button class="pca-btn" data-act="training-visible">${t("trainingSelectVisible")}</button><button class="pca-btn" data-act="training-team">${t("trainingSelectTeam")}</button><button class="pca-btn" data-act="training-clear">${t("trainingClear")}</button><button class="pca-btn" data-act="training-refresh">${t("trainingRefresh")}</button></div>
+            <div id="pca-training-list" class="pca-training-list"></div><div id="pca-training-summary" class="pca-note"></div>
+            <div class="pca-row"><button class="pca-btn primary pca-grow" data-act="training-save">${t("trainingSave")}</button><button class="pca-btn" data-act="training-reset">${t("trainingReset")}</button></div>
+          </div><div id="pca-training-active" class="pca-note"></div>
+        </div>
         <div class="pca-tabpanel ${settings.activeTab === "team" ? "active" : ""}" role="tabpanel" data-tabpanel="team">
           <div class="pca-card"><h4>${t("teamCopy")}</h4>
           <label class="pca-row"><input type="checkbox" data-setting="lockTeam5" ${settings.lockTeam5 ? "checked" : ""}>${t("lockTeam")}</label>
@@ -2045,23 +2235,31 @@
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "berries" ? "active" : ""}" role="tabpanel" data-tabpanel="berries">
           <div class="pca-card"><h4>${t("berryTitle")}</h4><div class="pca-berries">
-          ${Object.entries(BERRIES).map(([key, info]) => `<label class="pca-berry"><input type="checkbox" data-berry="${key}" ${settings.berries[key]?.enabled ? "checked" : ""}>${berryLabel(info)}</label><input type="number" min="0" title="${t("reserve")}" data-reserve="${key}" value="${settings.berries[key]?.reserve || 0}">`).join("")}
+          ${Object.entries(BERRIES).map(([key, info]) => `<label class="pca-berry"><input type="checkbox" data-berry="${key}" ${settings.berries[key]?.enabled ? "checked" : ""}><span>${berryLabel(info)}<small class="pca-note" style="display:block">${t("stock")} <b data-berry-stock="${key}">—</b></small></span></label><input type="number" min="0" title="${t("reserve")}" data-reserve="${key}" value="${settings.berries[key]?.reserve || 0}">`).join("")}
           </div><div class="pca-note">${t("berryNote")}</div></div>
+          <div class="pca-card"><h4>${t("pensionBerryTitle")}</h4>${Object.entries(PENSION_BERRIES).map(([key, info]) => `<div class="pca-row"><span class="pca-grow">${escapeHtml(pensionBerryLabel(info))}<small class="pca-note" style="display:block">${escapeHtml(pensionBerryEffect(info))}</small></span><span>${t("stock")} <b data-berry-stock="${key}">—</b></span></div>`).join("")}<button class="pca-btn" data-act="pension-berries">${t("pensionBerryButton")}</button><div class="pca-note">${t("pensionBerryNote")}</div></div>
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "diagnostics" ? "active" : ""}" role="tabpanel" data-tabpanel="diagnostics">
           <div class="pca-card"><h4>${t("notifications")}</h4><label class="pca-row"><input type="checkbox" data-setting="soundNotifications" ${settings.soundNotifications ? "checked" : ""}>${t("sound")}</label><label class="pca-row"><input type="checkbox" data-setting="desktopNotifications" ${settings.desktopNotifications ? "checked" : ""}>${t("desktop")}</label></div>
           <div class="pca-card"><h4>${t("diagnostic")}</h4><div id="pca-error" class="pca-note">${t("noError")}</div><div class="pca-row"><button class="pca-btn" data-act="copydiag">${t("copyDiagnostic")}</button></div></div>
           <div class="pca-card"><h4>${t("logs")}</h4><div id="pca-log" class="pca-log"></div></div>
         </div>
-      </div>`;
-    document.body.append(panel);
-    applyPanelPosition(panel);
-    enablePanelDragging(panel);
+      </div></section></div>`;
+    const host = document.querySelector(".topbar .tb-sep");
+    if (!host) {
+      setTimeout(renderPanel, 250);
+      return;
+    }
+    host.classList.add("pca-host");
+    host.append(panel);
+    applyFloatPosition(panel);
+    enableFloatDragging(panel);
 
     panel.addEventListener("click", (event) => {
       const tab = event.target.closest("[data-tab]")?.dataset.tab;
       if (tab) {
         selectPanelTab(panel, tab);
+        if (tab === "training") renderCandidatePool();
         return;
       }
       const action = event.target.closest("[data-act]")?.dataset.act;
@@ -2070,8 +2268,20 @@
         settings.collapsed = !settings.collapsed;
         saveSettings();
         panel.classList.toggle("collapsed", settings.collapsed);
-        event.target.textContent = settings.collapsed ? t("expand") : t("collapse");
-        requestAnimationFrame(() => keepPanelInViewport(panel));
+        panel.querySelector(".pca-native-bar")?.setAttribute("aria-expanded", String(!settings.collapsed));
+        if (!settings.collapsed && settings.floating) requestAnimationFrame(() => applyFloatPosition(panel));
+      } else if (action === "float") {
+        const dialog = panel.querySelector(".pca-dialog");
+        if (!settings.floating && dialog) {
+          const rect = dialog.getBoundingClientRect();
+          settings.floatPosition = { left: Math.round(rect.left), top: Math.round(rect.top) };
+        }
+        settings.floating = !settings.floating;
+        saveSettings();
+        panel.classList.toggle("floating", settings.floating);
+        dialog?.setAttribute("aria-modal", String(!settings.floating));
+        event.target.textContent = settings.floating ? t("dockWindow") : t("floatWindow");
+        applyFloatPosition(panel);
       } else if (action === "push") startMode("push");
       else if (action === "collect") startMode("collect");
       else if (action === "roaming") startMode("roaming");
@@ -2080,6 +2290,10 @@
       else if (action === "stop") stopMode();
       else if (action === "copy") copyTeam();
       else if (action === "reteam") regenerateTeam();
+      else if (action === "pension-berries") exclusive(language() === "en" ? "Open Day Care" : "打开培育屋", () => openScreen("pension"));
+      else if (action === "training-save") saveCandidatePool();
+      else if (["training-reset", "training-clear", "training-visible", "training-team"].includes(action)) candidatePoolSelectionAction(action);
+      else if (action === "training-refresh") renderCandidatePool();
       else if (action === "dup-on") bulkSetDuplicateKeeps(true);
       else if (action === "dup-off") bulkSetDuplicateKeeps(false);
       else if (action === "dup-cancel" && runtime.duplicateKeep?.active) runtime.duplicateKeep.cancelled = true;
@@ -2091,9 +2305,33 @@
 
     panel.addEventListener("input", (event) => {
       if (event.target.id === "pca-manual-targets") renderManualTargetPreview(event.target.value);
+      if (event.target.id === "pca-training-search") {
+        getCandidatePoolDraft().query = event.target.value;
+        renderCandidatePool();
+      }
+      if (event.target.id === "pca-training-min") {
+        getCandidatePoolDraft().minPower = Math.max(0, Math.min(2_000, Math.trunc(Number(event.target.value) || 0)));
+        renderCandidatePool();
+      }
     });
 
     panel.addEventListener("change", (event) => {
+      if (event.target.id === "pca-training-enable") {
+        getCandidatePoolDraft().enabled = event.target.checked;
+        renderCandidatePool();
+      }
+      if (event.target.id === "pca-training-eligible") {
+        getCandidatePoolDraft().onlyEligible = event.target.checked;
+        renderCandidatePool();
+      }
+      const candidateUid = event.target.dataset.candidateUid;
+      if (candidateUid) {
+        const draft = getCandidatePoolDraft();
+        draft.uids = event.target.checked
+          ? [...new Set([...draft.uids, candidateUid])]
+          : draft.uids.filter((uid) => uid !== candidateUid);
+        renderCandidatePool();
+      }
       const setting = event.target.dataset.setting;
       if (setting) {
         settings[setting] = event.target.checked;
@@ -2145,82 +2383,83 @@
         saveSettings();
       }
     });
-    if (!runtime.panelResizeBound) {
-      window.addEventListener("resize", () => {
-        const currentPanel = document.getElementById(PANEL_ID);
-        if (currentPanel) keepPanelInViewport(currentPanel);
-      });
-      runtime.panelResizeBound = true;
-    }
     renderStatus();
     renderLog();
+    if (settings.activeTab === "training") renderCandidatePool();
+    if (!runtime.floatResizeBound) {
+      window.addEventListener("resize", () => {
+        const current = document.getElementById(PANEL_ID);
+        if (current?.classList.contains("floating")) applyFloatPosition(current);
+      });
+      runtime.floatResizeBound = true;
+    }
   }
 
-  function statusCardHtml() {
-    return `<div class="pca-card"><h4>${t("statusTitle")}</h4><div class="pca-kv">
-      <span>${t("task")}</span><b data-status="mode">${t("idle")}</b><span>${t("target")}</span><b data-status="target">—</b><span>${t("place")}</span><b data-status="place">—</b><span>${t("attempts")}</span><b data-status="attempts">0</b><span>${t("buffs")}</span><b data-status="buffs">—</b><span>${t("fifthTeam")}</span><b data-status="team" class="pca-team">${t("notGenerated")}</b>
-    </div></div>`;
+  function statusSummaryHtml() {
+    return `<div class="pca-summary" aria-label="${t("statusTitle")}"><div class="pca-summary-main"><span>${t("task")}<b data-status="mode">${t("idle")}</b></span><span>${t("target")}<b data-status="target">—</b></span><span>${t("progress")}<b data-status="attempts">0</b></span></div><div class="pca-summary-extra"><span>${t("place")}<b data-status="place">—</b></span><span>${t("buffs")}<b data-status="buffs">—</b></span><span>${t("fifthTeam")}<b data-status="team" class="pca-team">${t("notGenerated")}</b></span></div></div>`;
   }
 
   function selectPanelTab(panel, tab) {
-    const allowed = new Set(["push", "collect", "team", "berries", "diagnostics"]);
+    const allowed = new Set(["push", "collect", "training", "team", "berries", "diagnostics"]);
     if (!allowed.has(tab)) return;
     settings.activeTab = tab;
     saveSettings();
+    panel.classList.toggle("training-open", tab === "training");
     panel.querySelectorAll("[data-tab]").forEach((button) => {
       const active = button.dataset.tab === tab;
       button.classList.toggle("active", active);
       button.setAttribute("aria-selected", String(active));
     });
     panel.querySelectorAll("[data-tabpanel]").forEach((tabpanel) => tabpanel.classList.toggle("active", tabpanel.dataset.tabpanel === tab));
+    if (settings.floating) requestAnimationFrame(() => applyFloatPosition(panel));
   }
 
-  function applyPanelPosition(panel) {
-    if (!settings.panelPosition) return;
-    panel.style.left = `${settings.panelPosition.left}px`;
-    panel.style.top = `${settings.panelPosition.top}px`;
-    panel.style.right = "auto";
-    panel.style.bottom = "auto";
-    keepPanelInViewport(panel);
-  }
-
-  function keepPanelInViewport(panel) {
-    if (!panel.style.left && !panel.style.top) return;
-    const rect = panel.getBoundingClientRect();
-    const left = Math.max(0, Math.min(rect.left, window.innerWidth - rect.width));
-    const top = Math.max(0, Math.min(rect.top, window.innerHeight - Math.min(rect.height, window.innerHeight)));
-    panel.style.left = `${left}px`;
-    panel.style.top = `${top}px`;
-    settings.panelPosition = { left: Math.round(left), top: Math.round(top) };
+  function applyFloatPosition(panel) {
+    const dialog = panel.querySelector(".pca-dialog");
+    if (!dialog) return;
+    if (!settings.floating) {
+      dialog.style.left = "";
+      dialog.style.top = "";
+      return;
+    }
+    const rect = dialog.getBoundingClientRect();
+    const width = rect.width || Math.min(settings.activeTab === "training" ? 780 : 620, window.innerWidth - 24);
+    const height = rect.height || Math.min(760, window.innerHeight - 24);
+    const requested = settings.floatPosition || { left: window.innerWidth - width - 14, top: 14 };
+    const left = Math.max(0, Math.min(Number(requested.left) || 0, window.innerWidth - width));
+    const top = Math.max(0, Math.min(Number(requested.top) || 0, window.innerHeight - height));
+    dialog.style.left = `${Math.round(left)}px`;
+    dialog.style.top = `${Math.round(top)}px`;
+    settings.floatPosition = { left: Math.round(left), top: Math.round(top) };
     saveSettings();
   }
 
-  function enablePanelDragging(panel) {
+  function enableFloatDragging(panel) {
     const handle = panel.querySelector(".pca-head");
+    const dialog = panel.querySelector(".pca-dialog");
+    if (!handle || !dialog) return;
     let drag = null;
     handle.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0 || event.target.closest("button,select,input")) return;
-      const rect = panel.getBoundingClientRect();
+      if (!settings.floating || event.button !== 0 || event.target.closest("button,select,input")) return;
+      const rect = dialog.getBoundingClientRect();
       drag = { pointerId: event.pointerId, dx: event.clientX - rect.left, dy: event.clientY - rect.top };
-      panel.style.left = `${rect.left}px`;
-      panel.style.top = `${rect.top}px`;
-      panel.style.right = "auto";
-      panel.style.bottom = "auto";
       handle.setPointerCapture(event.pointerId);
       event.preventDefault();
     });
     handle.addEventListener("pointermove", (event) => {
       if (!drag || drag.pointerId !== event.pointerId) return;
-      const left = Math.max(0, Math.min(event.clientX - drag.dx, window.innerWidth - panel.offsetWidth));
-      const top = Math.max(0, Math.min(event.clientY - drag.dy, window.innerHeight - Math.min(panel.offsetHeight, window.innerHeight)));
-      panel.style.left = `${left}px`;
-      panel.style.top = `${top}px`;
+      const left = Math.max(0, Math.min(event.clientX - drag.dx, window.innerWidth - dialog.offsetWidth));
+      const top = Math.max(0, Math.min(event.clientY - drag.dy, window.innerHeight - dialog.offsetHeight));
+      dialog.style.left = `${Math.round(left)}px`;
+      dialog.style.top = `${Math.round(top)}px`;
     });
     const finish = (event) => {
       if (!drag || drag.pointerId !== event.pointerId) return;
       drag = null;
       if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-      keepPanelInViewport(panel);
+      const rect = dialog.getBoundingClientRect();
+      settings.floatPosition = { left: Math.round(rect.left), top: Math.round(rect.top) };
+      saveSettings();
     };
     handle.addEventListener("pointerup", finish);
     handle.addEventListener("pointercancel", finish);
@@ -2327,6 +2566,7 @@
     });
     panel.querySelectorAll('[data-status="buffs"]').forEach((node) => { node.textContent = activeBuffs.join(language() === "en" ? ", " : "、") || "—"; });
     panel.querySelectorAll('[data-status="team"]').forEach((node) => { node.textContent = runtime.teamStatus === "未生成" ? t("notGenerated") : runtime.teamStatus; });
+    panel.querySelectorAll("[data-berry-stock]").forEach((node) => { node.textContent = String(save?.items?.[node.dataset.berryStock] || 0); });
     panel.querySelector("#pca-error").textContent = runtime.error ? `${runtime.error.phase}: ${runtime.error.observed}\n${t("suggestion")}: ${runtime.error.suggestion}` : `${t("noError")} · ${t("game")} ${gameBuild()} · ${t("data")} ${DATA.appBuild}`;
     renderRoamingPriority();
     renderCollectionScope(save);

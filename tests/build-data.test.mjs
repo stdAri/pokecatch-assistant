@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.5.3", () => {
-  assert.equal(packageJson.version, "0.5.3");
-  assert.ok(source.includes("// @version      0.5.3"));
-  assert.ok(source.includes('const VERSION = "0.5.3"'));
-  assert.ok(viteConfig.includes('version: "0.5.3"'));
+test("userscript and development metadata share version 0.7.0", () => {
+  assert.equal(packageJson.version, "0.7.0");
+  assert.ok(source.includes("// @version      0.7.0"));
+  assert.ok(source.includes('const VERSION = "0.7.0"'));
+  assert.ok(viteConfig.includes('version: "0.7.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -86,8 +86,14 @@ test("new regions accept missing presets and only recommend locally available Po
     "pokemonHomeRegion",
     "isMonAvailableInCurrentRegion",
     "availableTeamCandidates",
+    "baseStatTotal",
+    "undergroundRank",
+    "combinedStatMultiplier",
+    "combinedStatValue",
+    "normalizeCandidatePool",
+    "teamCandidatesForRecommendation",
     "requiredTeamSize",
-  ]);
+  ], { DATA: data, species: (id) => data.species[id], settings: { candidatePool: { enabled: false, minPower: 500, uids: [] } } });
   const mons = [
     { uid: "old-1", id: 1, level: 90, reg: "kanto" },
     { uid: "old-2", id: 152, level: 80, reg: "kanto2" },
@@ -103,7 +109,7 @@ test("new regions accept missing presets and only recommend locally available Po
   assert.equal(pokemonHomeRegion(mons[1]), "johto");
   assert.equal(requiredTeamSize(save), 4);
   assert.equal(requiredTeamSize({ ...save, link: { ...save.link, side: "from" } }), 2);
-  assert.ok(source.includes("const candidates = availableTeamCandidates(save);"));
+  assert.ok(source.includes("const candidates = teamCandidatesForRecommendation(save);"));
   assert.ok(source.includes("const fullTeamSize = requiredTeamSize(save);"));
 });
 
@@ -542,6 +548,35 @@ test("collection team recommendations give current level a higher weight", () =>
   assert.ok(source.includes("const levelWeight = storyTarget ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT"));
 });
 
+test("training pool adds combined stat filtering without replacing main features", () => {
+  assert.equal(data.shinyStatBonus, 0.1);
+  assert.equal(data.rankStatMultiplier, 1.15);
+  assert.equal(data.rankMax, 5);
+  const { baseStatTotal, undergroundRank, combinedStatMultiplier, combinedStatValue, normalizeCandidatePool } = sourceFunctions(
+    ["baseStatTotal", "undergroundRank", "combinedStatMultiplier", "combinedStatValue", "normalizeCandidatePool"],
+    { DATA: data, species: (id) => data.species[id] },
+  );
+  assert.equal(baseStatTotal(36), 483);
+  assert.equal(undergroundRank({ rank: 9 }), 5);
+  assert.equal(combinedStatValue({ id: 36, shiny: true, rank: 0 }), 531.3);
+  assert.equal(combinedStatValue({ id: 36, shiny: false, rank: 1 }), 555.45);
+  assert.equal(combinedStatMultiplier({ shiny: true, rank: 2 }), 1.1 * 1.15 ** 2);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(normalizeCandidatePool({ enabled: true, minBst: 500, uids: [1, "1", "2"] }))),
+    { enabled: true, minPower: 500, uids: ["1", "2"] },
+  );
+
+  assert.ok(source.includes('trainingTab: "培养"'));
+  assert.ok(source.includes('data-tabpanel="training"'));
+  assert.ok(source.includes("综合能力值 = 当前形态六项种族值总和"));
+  assert.ok(source.includes('data-act="dup-on"'), "main duplicate-retention controls must remain");
+  assert.ok(source.includes('data-act="copy"'), "main team-copy control must remain");
+  assert.ok(source.includes('data-act="combined"'), "main combined collection mode must remain");
+  assert.ok(source.includes('data-setting="autoPushForCollection"'), "main collection story-advance option must remain");
+  assert.ok(sourceFunctionText("renderCandidatePool").includes("try"));
+  assert.ok(sourceFunctionText("renderCandidatePool").includes('t("trainingNoSave")'));
+});
+
 test("roaming legendary teams strongly prioritize level 90 or above with fallback", () => {
   const roamingLevelPriorityScore = sourceFunction("roamingLevelPriorityScore");
   assert.equal(roamingLevelPriorityScore(100, 90), 1_040);
@@ -571,6 +606,33 @@ test("berry controls provide Chinese and English names followed by their effects
   }
   assert.ok(source.includes('"rowap-berry": { family: "roam"'));
   assert.equal(source.includes('label: "经验果"'), false);
+  for (const label of ["橙橙果", "桃桃果", "文柚果", "靛莓果", "培育屋产蛋进度 +5 分钟", "百变怪下一颗蛋的异色率 ×2"]) {
+    assert.ok(source.includes(label), `missing Day Care berry text: ${label}`);
+  }
+  assert.ok(source.includes('data-act="pension-berries"'));
+  assert.ok(source.includes('data-berry-stock="${key}"'));
+  assert.ok(source.includes('node.dataset.berryStock'));
+});
+
+test("berry renewal respects families, reserve, strength, and region-side buffs", () => {
+  const berries = {
+    "razz-berry": { family: "capture" },
+    "golden-razz-berry": { family: "capture" },
+    "rowap-berry": { family: "roam" },
+  };
+  const settings = { berries: {
+    "razz-berry": { enabled: true, reserve: 1 },
+    "golden-razz-berry": { enabled: true, reserve: 0 },
+    "rowap-berry": { enabled: true, reserve: 2 },
+  } };
+  const { berryUseCandidates } = sourceFunctions(["berryUseCandidates"], { BERRIES: berries, settings, Date });
+  const base = { lastTick: 1_000, items: { "razz-berry": 5, "golden-razz-berry": 1, "rowap-berry": 2 }, buffs: {} };
+  assert.deepEqual(Array.from(berryUseCandidates(base, 1_000), (item) => item.key), ["golden-razz-berry"]);
+  assert.deepEqual(Array.from(berryUseCandidates({ ...base, buffs: { capture: { until: 2_000 } } }, 1_000), (item) => item.key), []);
+  assert.deepEqual(
+    Array.from(berryUseCandidates({ ...base, link: { side: "to" }, buffs: { capture: { until: 2_000, side: "from" } } }, 1_000), (item) => item.key),
+    ["golden-razz-berry"],
+  );
 });
 
 test("expired berries renew independently using the game's clock and verify activation", () => {
@@ -578,7 +640,7 @@ test("expired berries renew independently using the game's clock and verify acti
   assert.equal(activeBuffAt({ buffs: { xp: { key: "pinap-berry", until: 2_000 } } }, "xp", 1_999)?.key, "pinap-berry");
   assert.equal(activeBuffAt({ buffs: { xp: { key: "pinap-berry", until: 2_000 } } }, "xp", 2_000), null);
   assert.equal(activeBuffAt({ buffs: { roam: { key: "rowap-berry", until: 2_000 } } }, "roam", 1_999)?.key, "rowap-berry");
-  assert.ok(source.includes("const gameNow = Number(save.lastTick) || Date.now();"));
+  assert.ok(source.includes("function berryUseCandidates(save, now = Number(save.lastTick) || Date.now())"));
   assert.ok(source.includes("if (!runtime.paused && !runtime.error) await manageBerries(save);"));
   assert.ok(source.indexOf("await manageBerries(save)") < source.indexOf('if (runtime.mode === "idle" || runtime.paused)'));
   assert.ok(source.includes("const countBefore = Number(save.items?.[choice.key] || 0);"));
@@ -655,11 +717,34 @@ test("cross-region chapter switching selects the target region before its chapte
   assert.ok(switchChapter.indexOf("await pacedClick(regionButton") < switchChapter.indexOf("const row = await waitFor"));
 });
 
-test("floating panel can be dragged and remembers its position", () => {
-  assert.ok(source.includes('handle.addEventListener("pointerdown"'));
-  assert.ok(source.includes('handle.addEventListener("pointermove"'));
-  assert.ok(source.includes("settings.panelPosition ="));
-  assert.ok(source.includes("keepPanelInViewport(panel)"));
+test("assistant status mounts into the native top bar instead of floating over game content", () => {
+  assert.ok(source.includes('document.querySelector(".topbar .tb-sep")'));
+  assert.ok(source.includes('host.classList.add("pca-host")'));
+  assert.ok(source.includes("host.append(panel)"));
+  assert.ok(source.includes(".topbar .tb-sep.pca-host"));
+  assert.ok(!source.includes("enablePanelDragging(panel)"));
+  assert.ok(!source.includes('data-act="pin"'));
+});
+
+test("task status remains visible in the native bar while settings use a dismissable modal", () => {
+  assert.equal((source.match(/\$\{statusSummaryHtml\(\)\}/g) || []).length, 1);
+  assert.ok(source.includes('class="pca-native-bar"'));
+  assert.ok(source.includes('class="pca-modal-shade" data-act="collapse"'));
+  assert.ok(source.includes('role="dialog" aria-modal="${!settings.floating}"'));
+  assert.ok(source.includes("#${PANEL_ID}:not(.collapsed) .pca-modal{display:flex}"));
+  assert.ok(source.includes('data-status="mode"'));
+  assert.ok(source.includes('data-status="target"'));
+  assert.ok(source.includes('data-status="attempts"'));
+});
+
+test("native assistant can opt into a draggable floating window and return to the top bar", () => {
+  assert.ok(source.includes('floating: false'));
+  assert.ok(source.includes('floatPosition: null'));
+  assert.ok(source.includes('data-act="float"'));
+  assert.ok(source.includes('panel.classList.toggle("floating", settings.floating)'));
+  assert.ok(source.includes("#${PANEL_ID}.floating .pca-modal-shade{display:none}"));
+  assert.ok(sourceFunctionText("enableFloatDragging").includes('handle.addEventListener("pointermove"'));
+  assert.ok(sourceFunctionText("applyFloatPosition").includes("settings.floatPosition"));
 });
 
 test("local development uses vite-plugin-monkey", () => {
