@@ -65,9 +65,9 @@ npm run dev
 - [提出功能建议](https://github.com/stdAri/pokecatch-assistant/issues/new?template=feature_request.yml)
 - [询问使用问题](https://github.com/stdAri/pokecatch-assistant/issues/new?template=question.yml)
 
-## 许可证状态
+## 许可证
 
-维护者尚未授予代码复制、修改或再发布许可；在许可证确定前保留所有权利。生成文件包含从当前游戏前端整理出的兼容数据，不应被理解为对 Pokémon 相关素材、名称或游戏数据主张权利。
+项目代码采用 [MIT License](LICENSE)，允许使用、复制、修改和再发布。生成文件包含从当前游戏前端整理出的兼容数据；MIT License 不应被理解为对 Pokémon 相关名称、素材或第三方游戏数据主张权利或进行再许可。
 
 ## English
 
@@ -76,3 +76,5 @@ PokeCatch Assistant is an experimental, unofficial Tampermonkey userscript for [
 The script reads the local `gachamon-save-v1` state but does not write to it, alter randomness, forge capture results, access authentication tokens, or call cloud-save APIs. It pauses when the supported game build or critical page structure no longer matches.
 
 Install with Tampermonkey: [open the userscript](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js), review its permissions, and confirm installation. The interface is currently in Simplified Chinese. This project is not affiliated with the Poke'Catch authors, Nintendo, Game Freak, Creatures, or The Pokémon Company.
+
+Project code is available under the [MIT License](LICENSE). This license does not claim ownership of or relicense Pokémon-related names, assets, or third-party game data.
