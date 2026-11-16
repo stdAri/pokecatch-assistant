@@ -47,11 +47,14 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.3.0", () => {
-  assert.equal(packageJson.version, "0.3.0");
-  assert.ok(source.includes("// @version      0.3.0"));
-  assert.ok(source.includes('const VERSION = "0.3.0"'));
-  assert.ok(viteConfig.includes('version: "0.3.0"'));
+test("userscript and development metadata share version 0.3.1", () => {
+  assert.equal(packageJson.version, "0.3.1");
+  assert.ok(source.includes("// @version      0.3.1"));
+  assert.ok(source.includes('const VERSION = "0.3.1"'));
+  assert.ok(viteConfig.includes('version: "0.3.1"'));
+  assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
+  assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
+  assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
 });
 
 test("Johto finale contains Red's actual six Pokemon", () => {

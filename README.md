@@ -3,7 +3,7 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.1-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
@@ -33,6 +33,8 @@
 官方游戏社区：[Poke'Catch Discord](https://discord.gg/PZfZw2n3Vr)。在社区发布或推广自动化工具前，请先向管理员确认对应频道和规则。
 
 ## 安装
+
+日常游玩和实机测试请使用 GitHub 稳定版。它完整保存在 Tampermonkey 中，刷新页面或重启浏览器都不依赖本地开发服务，并会从 GitHub 检查更新。
 
 1. 在 Edge 安装 Tampermonkey。
 2. 点击 [一键安装 PokeCatch 助手](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js)。
@@ -64,7 +66,7 @@ npm install
 npm run dev
 ```
 
-首次运行时，Edge 会打开名称以“开发：”开头的用户脚本安装页；安装一次后保持开发服务运行。修改 `src/template.user.js` 并保存，游戏页会自动加载最新代码。正式安装包仍由 `npm run build` 生成到 `dist/pokecatch-assistant.user.js`，不会与开发脚本混淆。
+首次运行时，Edge 会打开名称以 `Dev:` 开头的用户脚本安装页。开发版使用独立命名空间，仅在开发服务运行时有效；修改 `src/template.user.js` 并保存，游戏页会自动加载最新代码。日常游玩时关闭开发版，只启用 GitHub 稳定版，避免两个脚本同时控制游戏。正式安装包仍由 `npm run build` 生成到 `dist/pokecatch-assistant.user.js`。
 
 自动测试还覆盖实时神兽候选、首次失败重置、目标消失后的单次确认、多只神兽优先级和捕获状态冲突安全暂停。真实游戏中的切章、队伍拖拽和长时间运行仍应先用非关键存档小范围验证。
 
@@ -86,6 +88,6 @@ PokeCatch Assistant is an experimental, unofficial Tampermonkey userscript for [
 
 The script reads the local `gachamon-save-v1` state but does not write to it, alter randomness, forge capture results, access authentication tokens, or call cloud-save APIs. It pauses when the supported game build or critical page structure no longer matches.
 
-Install with Tampermonkey: [open the userscript](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js), review its permissions, and confirm installation. The interface is currently in Simplified Chinese. This project is not affiliated with the Poke'Catch authors, Nintendo, Game Freak, Creatures, or The Pokémon Company.
+Install the GitHub stable build with Tampermonkey: [open the userscript](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js), review its permissions, and confirm installation. The stable build works after a page refresh without a local development server and supports Simplified Chinese and English. Keep the separate `Dev:` userscript disabled unless the local Vite server is running. This project is not affiliated with the Poke'Catch authors, Nintendo, Game Freak, Creatures, or The Pokémon Company.
 
 Project code is available under the [MIT License](LICENSE). This license does not claim ownership of or relicense Pokémon-related names, assets, or third-party game data.

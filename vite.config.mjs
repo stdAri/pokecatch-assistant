@@ -44,8 +44,8 @@ export default defineConfig({
       entry: "src/template.user.js",
       userscript: {
         name: "Dev: PokeCatch Assistant / 全图鉴与推图助手",
-        namespace: "local.pokecatch.assistant",
-        version: "0.3.0",
+        namespace: "local.pokecatch.assistant.dev",
+        version: "0.3.1",
         description: "Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。",
         match: [
           "https://pokecatch-online.netlify.app/*",
