@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.5.2", () => {
-  assert.equal(packageJson.version, "0.5.2");
-  assert.ok(source.includes("// @version      0.5.2"));
-  assert.ok(source.includes('const VERSION = "0.5.2"'));
-  assert.ok(viteConfig.includes('version: "0.5.2"'));
+test("userscript and development metadata share version 0.5.3", () => {
+  assert.equal(packageJson.version, "0.5.3");
+  assert.ok(source.includes("// @version      0.5.3"));
+  assert.ok(source.includes('const VERSION = "0.5.3"'));
+  assert.ok(viteConfig.includes('version: "0.5.3"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -643,6 +643,16 @@ test("automated page actions use randomized conservative pacing", () => {
   assert.equal((source.match(/\.click\(\)/g) || []).length, 1, "automated clicks must go through pacedClick");
   assert.ok(source.includes('await jitter(35, 85);'));
   assert.ok(source.includes('await jitter(450, 1_100);'));
+});
+
+test("cross-region chapter switching selects the target region before its chapter", () => {
+  const switchChapter = source.slice(
+    source.indexOf("async function switchChapter"),
+    source.indexOf("async function enterSpecialZone"),
+  );
+  assert.ok(switchChapter.includes("const targetRegion = chapter(chapterIndex)?.region;"));
+  assert.ok(switchChapter.includes('`.rg.open[data-rg="${targetRegion}"]`'));
+  assert.ok(switchChapter.indexOf("await pacedClick(regionButton") < switchChapter.indexOf("const row = await waitFor"));
 });
 
 test("floating panel can be dragged and remembers its position", () => {

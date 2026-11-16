@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.5.2
+// @version      0.5.3
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.5.2";
+  const VERSION = "0.5.3";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -455,9 +455,21 @@
 
   async function switchChapter(chapterIndex, { settle = true } = {}) {
     runtime.expectedChapter = chapterIndex;
+    const targetRegion = chapter(chapterIndex)?.region;
+    if (!targetRegion) throw new Error(`找不到章节${chapterIndex}的数据`);
     await openScreen("adventure");
     let visibleRow = document.querySelector(`.mp-row[data-ch="${chapterIndex}"]`);
-    if (!visibleRow) await pacedClick(document.querySelector("#side-chapter"), "章节列表按钮");
+    if (!visibleRow) {
+      await pacedClick(document.querySelector("#side-chapter"), "章节列表按钮");
+      visibleRow = document.querySelector(`.mp-row[data-ch="${chapterIndex}"]`);
+      if (!visibleRow) {
+        const regionButton = await waitFor(
+          () => document.querySelector(`.rg.open[data-rg="${targetRegion}"]`),
+          { label: `${t(targetRegion)}地区标签` },
+        );
+        await pacedClick(regionButton, `${t(targetRegion)}地区标签`);
+      }
+    }
     const row = await waitFor(
       () => document.querySelector(`.mp-row[data-ch="${chapterIndex}"]`),
       { label: `章节${chapterIndex}列表项` },
