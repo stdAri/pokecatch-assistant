@@ -1,0 +1,2 @@
+# Keep the vendored test library byte-for-byte; upstream formatting is intentional.
+linkedom.worker.mjs -whitespace

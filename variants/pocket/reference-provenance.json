@@ -1,0 +1,7 @@
+{
+  "gameBuild": "c0081498f2",
+  "sourceUrl": "https://pokecatch-online.pages.dev/bundle/app.c0081498f2.js",
+  "completeBundleSha256": "c0081498f217061d529fb18ecc4833e9490c93e0b425fc3d04b713d990fdda11",
+  "excerptSha256": "7f6480f58c97d2d1a1b79604c639991f4d6c498022da75b89cea8a4ecd905bcf",
+  "purpose": "Differential regression tests against regional eligibility, drag handlers, weather/daytime, daily spots, rank and berries. Contains no save or account information."
+}
