@@ -20,15 +20,18 @@
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
   const VERSION = "0.1.0";
+  const ROAMING_LEGENDARIES = [243, 244, 245];
+  const DEFAULT_LEVEL_WEIGHT = 0.22;
+  const COLLECTION_LEVEL_WEIGHT = 1.2;
 
   const BERRIES = {
-    "razz-berry": { family: "capture", label: "普通捕获果 ×1.25" },
-    "golden-razz-berry": { family: "capture", label: "金色捕获果 ×1.5" },
-    "nanab-berry": { family: "rare", label: "稀有遭遇果" },
-    "enigma-berry": { family: "dex", label: "缺失图鉴果" },
-    "pinap-berry": { family: "xp", label: "经验果" },
-    "lansat-berry": { family: "money", label: "金钱果" },
-    "starf-berry": { family: "shiny", label: "异色果" },
+    "razz-berry": { family: "capture", label: "蔓莓果（捕获率 ×1.25）" },
+    "golden-razz-berry": { family: "capture", label: "金色蔓莓果（捕获率 ×1.5）" },
+    "nanab-berry": { family: "rare", label: "蕉香果（区域稀有种类 ×2）" },
+    "enigma-berry": { family: "dex", label: "谜芝果（本地区未捕获种类 ×3）" },
+    "pinap-berry": { family: "xp", label: "凰梨果（战斗经验 +25%）" },
+    "lansat-berry": { family: "money", label: "兰萨果（金币 +25%）" },
+    "starf-berry": { family: "shiny", label: "星桃果（野生异色 ×2）" },
   };
 
   const DEFAULT_SETTINGS = {
@@ -41,7 +44,7 @@
     regionScope: "current",
     customRegions: ["kanto", "johto"],
     manualTargets: [],
-    roamingPriority: [243, 244, 245],
+    roamingPriority: [...ROAMING_LEGENDARIES],
     berries: Object.fromEntries(Object.keys(BERRIES).map((key) => [key, { enabled: false, reserve: 0 }])),
   };
 
@@ -69,6 +72,7 @@
     logs: [],
     error: null,
     timer: null,
+    chapterReset: null,
   };
 
   let settings = loadSettings();
@@ -232,7 +236,7 @@
     return enemyIds.map((id) => species(id)).filter(Boolean);
   }
 
-  function scoreCandidate(mon, enemies, continuitySet, selected) {
+  function scoreCandidate(mon, enemies, continuitySet, selected, levelWeight = DEFAULT_LEVEL_WEIGHT) {
     const meta = species(mon.id);
     if (!meta) return { score: -Infinity, reason: "缺少资料" };
     const stats = meta.s;
@@ -255,7 +259,7 @@
 
     const samePrimary = selected.filter((item) => species(item.id)?.t?.[0] === meta.t[0]).length;
     const continuity = continuitySet.has(mon.uid) ? 18 : 0;
-    const levelContribution = Math.min(100, mon.level) * 0.22;
+    const levelContribution = Math.min(100, mon.level) * levelWeight;
     const score = bst * 0.21 + offense * 0.82 + defense * 34 + stats[5] * 0.08 + levelContribution + continuity - samePrimary * 16;
     return {
       score,
@@ -263,7 +267,7 @@
     };
   }
 
-  function recommendTeam(save, enemyIds, excludedSignatures = new Set()) {
+  function recommendTeam(save, enemyIds, { excludedSignatures = new Set(), levelWeight = DEFAULT_LEVEL_WEIGHT } = {}) {
     const enemies = enemyProfiles(enemyIds);
     const currentFive = new Set(save.teamSets?.list?.[4] || []);
     const candidates = save.mons.filter((mon) => mon?.uid && mon.level > 0);
@@ -272,7 +276,7 @@
     while (selected.length < 6 && selected.length < candidates.length) {
       const ranked = candidates
         .filter((mon) => !selected.some((item) => item.uid === mon.uid))
-        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected) }))
+        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight) }))
         .sort((a, b) => b.score - a.score);
       const choice = ranked[0];
       if (!choice) break;
@@ -285,7 +289,7 @@
       const last = selected.pop();
       const replacement = candidates
         .filter((mon) => !selected.some((item) => item.uid === mon.uid) && mon.uid !== last.uid)
-        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected) }))
+        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight) }))
         .sort((a, b) => b.score - a.score)[0];
       if (replacement) selected.push(replacement.mon);
     }
@@ -308,7 +312,7 @@
     }
   }
 
-  async function switchChapter(chapterIndex) {
+  async function switchChapter(chapterIndex, { settle = true } = {}) {
     runtime.expectedChapter = chapterIndex;
     await openScreen("adventure");
     let visibleRow = document.querySelector(`.mp-row[data-ch="${chapterIndex}"]`);
@@ -325,9 +329,33 @@
     await jitter();
     go.click();
     await waitFor(() => readSave().adv.chapter === chapterIndex, { timeout: 10_000, label: `进入章节${chapterIndex}` });
-    await jitter(500, 900);
+    if (settle) await jitter(500, 900);
     runtime.expectedChapter = null;
     log(`已进入：${chapter(chapterIndex)?.name || `章节${chapterIndex}`}`);
+  }
+
+  async function continueChapterReset() {
+    const reset = runtime.chapterReset;
+    if (!reset) return true;
+
+    const current = readSave().adv.chapter;
+    if (reset.phase === "transit") {
+      if (current !== reset.transitChapter) {
+        await switchChapter(reset.transitChapter);
+      }
+      reset.phase = "target";
+      log(`中转已完成，立即返回：${chapter(reset.targetChapter)?.name || `章节${reset.targetChapter}`}`);
+      return false;
+    }
+
+    if (readSave().adv.chapter !== reset.targetChapter) {
+      await switchChapter(reset.targetChapter);
+    }
+    if (readSave().adv.chapter !== reset.targetChapter) return false;
+
+    runtime.chapterReset = null;
+    log(`章节重置完成：${chapter(reset.targetChapter)?.name || `章节${reset.targetChapter}`}`);
+    return true;
   }
 
   async function resetChapter(plan) {
@@ -338,8 +366,12 @@
         .filter((item) => item.region === region && item.index <= save.adv.unlocked && item.index !== plan.chapter)
         .sort((a, b) => Math.abs(a.index - plan.chapter) - Math.abs(b.index - plan.chapter))[0];
       if (!transit) throw new Error("找不到神兽章节的中转章节");
-      await switchChapter(transit.index);
-      await switchChapter(plan.chapter);
+      runtime.chapterReset = {
+        phase: "transit",
+        transitChapter: transit.index,
+        targetChapter: plan.chapter,
+      };
+      await continueChapterReset();
       return;
     }
     const alternatives = plansForSpecies(save, plan.speciesId).filter((item) => item.chapter !== plan.chapter);
@@ -353,8 +385,12 @@
       .filter((item) => item.region === region && item.index <= save.adv.unlocked && item.index !== plan.chapter)
       .sort((a, b) => Math.abs(a.index - plan.chapter) - Math.abs(b.index - plan.chapter))[0];
     if (!transit) throw new Error("找不到可用中转章节");
-    await switchChapter(transit.index);
-    await switchChapter(plan.chapter);
+    runtime.chapterReset = {
+      phase: "transit",
+      transitChapter: transit.index,
+      targetChapter: plan.chapter,
+    };
+    await continueChapterReset();
   }
 
   async function applyRecommendedTeam(plan, reason) {
@@ -369,6 +405,34 @@
     runtime.lastTeamSignature = (readSave().teamSets?.list?.[4] || []).join("|");
     runtime.teamStatus = `已应用：${plan.details.map((item) => item.name).join("、")}`;
     log(runtime.teamStatus);
+  }
+
+  let syntheticPointerId = 10_000;
+
+  async function dragPokemon(source, destination, label) {
+    if (!source || !destination) throw new Error(`找不到${label}的拖放位置`);
+    const from = source.getBoundingClientRect();
+    const to = destination.getBoundingClientRect();
+    const pointerId = syntheticPointerId += 1;
+    const event = (type, x, y, buttons) => new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      pointerId,
+      pointerType: "mouse",
+      button: 0,
+      buttons,
+      clientX: x,
+      clientY: y,
+    });
+    const fromX = from.left + from.width / 2;
+    const fromY = from.top + from.height / 2;
+    const toX = to.left + to.width / 2;
+    const toY = to.top + Math.min(to.height / 2, 24);
+    source.dispatchEvent(event("pointerdown", fromX, fromY, 1));
+    document.dispatchEvent(event("pointermove", fromX + Math.sign(toX - fromX || 1) * 8, fromY + Math.sign(toY - fromY || 1) * 8, 1));
+    document.dispatchEvent(event("pointermove", toX, toY, 1));
+    document.dispatchEvent(event("pointerup", toX, toY, 0));
+    await jitter(180, 360);
   }
 
   async function configurePreset(presetIndex, desiredUids) {
@@ -390,10 +454,10 @@
 
     let current = [...readSave().team];
     for (const uid of current.filter((item) => !desiredUids.includes(item))) {
-      if (readSave().team.length <= 1) break;
-      document.querySelector(`#team-slots [data-team-uid="${CSS.escape(uid)}"]`)?.click();
+      const slot = document.querySelector(`#team-slots [data-team-uid="${CSS.escape(uid)}"]`);
+      const pcGrid = document.querySelector("#pc-grid");
+      await dragPokemon(slot, pcGrid, "移除队伍成员");
       await waitFor(() => !readSave().team.includes(uid), { label: "移除队伍成员" });
-      await jitter(180, 360);
     }
 
     for (const uid of desiredUids) {
@@ -409,17 +473,18 @@
         () => document.querySelector(`#pc-grid .pc-cell[data-uid="${CSS.escape(uid)}"]`),
         { label: `电脑中的${species(mon.id)?.n || mon.id}` },
       );
-      card.click();
+      const emptySlot = document.querySelector("#team-slots .slot.empty");
+      await dragPokemon(card, emptySlot, `将${species(mon.id)?.n || mon.id}加入队伍`);
       await waitFor(() => readSave().team.includes(uid), { label: "加入队伍" });
-      await jitter(180, 360);
     }
 
     current = [...readSave().team];
     for (const uid of current.filter((item) => !desiredUids.includes(item))) {
       if (readSave().team.length <= desiredUids.length) break;
-      document.querySelector(`#team-slots [data-team-uid="${CSS.escape(uid)}"]`)?.click();
+      const slot = document.querySelector(`#team-slots [data-team-uid="${CSS.escape(uid)}"]`);
+      const pcGrid = document.querySelector("#pc-grid");
+      await dragPokemon(slot, pcGrid, "清理多余成员");
       await waitFor(() => !readSave().team.includes(uid), { label: "清理多余成员" });
-      await jitter(180, 360);
     }
 
     if (search) {
@@ -514,7 +579,7 @@
 
   function activeRoamers(save) {
     const now = Date.now();
-    return settings.roamingPriority
+    return roamingPriorityIds()
       .filter((id) => !isCaught(save, id))
       .map((id) => {
         const state = save.roam?.at?.[id] || {};
@@ -584,7 +649,7 @@
       runtime.targetPlan = { chapter: frontier, chapterName: chapter(frontier)?.name };
       runtime.userTeamOverride = false;
       const failures = runtime.failureTeams.get(frontier) || new Set();
-      const plan = recommendTeam(save, targetEnemyIdsForChapter(frontier), failures);
+      const plan = recommendTeam(save, targetEnemyIdsForChapter(frontier), { excludedSignatures: failures });
       await exclusive("生成推图阵容", () => applyRecommendedTeam(plan, chapter(frontier)?.name || `章节${frontier}`));
       return;
     }
@@ -610,7 +675,7 @@
         const failed = runtime.failureTeams.get(frontier) || new Set();
         if (runtime.teamPlan?.signature) failed.add(runtime.teamPlan.signature);
         runtime.failureTeams.set(frontier, failed);
-        const plan = recommendTeam(save, targetEnemyIdsForChapter(frontier), failed);
+        const plan = recommendTeam(save, targetEnemyIdsForChapter(frontier), { excludedSignatures: failed });
         notifyUser("阵容需要调整", `同一章节连续失败，重新配置${chapter(frontier)?.name || "当前章节"}阵容。`);
         await exclusive("失败后重新配队", () => applyRecommendedTeam(plan, "连续失败后调整"));
       }
@@ -618,9 +683,14 @@
     runtime.lastDeaths[frontier] = deaths;
   }
 
-  async function collectTick(save) {
-    const roamers = activeRoamers(save);
-    if (roamers.length) {
+  async function collectTick(save, { trackRoamers, collectMissing }) {
+    if (runtime.chapterReset) {
+      await exclusive("继续章节重置", continueChapterReset);
+      return;
+    }
+
+    const roamers = trackRoamers ? activeRoamers(save) : [];
+    if (trackRoamers && roamers.length) {
       const roamer = roamers[0];
       const targetKey = `roam:${roamer.id}`;
       if (runtime.target !== targetKey) {
@@ -634,7 +704,8 @@
         };
         runtime.userTeamOverride = false;
         runtime.attempts = 0;
-        const plan = recommendTeam(save, [roamer.id]);
+        runtime.lastRoamTries[roamer.id] = Number(save.legTries?.[roamer.id] || 0);
+        const plan = recommendTeam(save, [roamer.id], { levelWeight: COLLECTION_LEVEL_WEIGHT });
         await exclusive("配置神兽阵容", async () => {
           await applyRecommendedTeam(plan, species(roamer.id)?.n || String(roamer.id));
           if (readSave().adv.chapter !== roamer.chapter) await switchChapter(roamer.chapter);
@@ -659,7 +730,19 @@
       runtime.targetPlan = null;
       runtime.teamPlan = null;
       runtime.attempts = 0;
-      log("神兽捕获或离开，重新规划普通缺失图鉴");
+      log(collectMissing ? "神兽捕获或离开，重新规划普通缺失图鉴" : "神兽捕获或离开，继续等待下一只徘徊神兽");
+    }
+
+    if (!collectMissing) {
+      if (runtime.target !== "roam:waiting") {
+        runtime.target = "roam:waiting";
+        runtime.targetPlan = null;
+        runtime.teamPlan = null;
+        runtime.teamStatus = "等待徘徊神兽出现";
+        runtime.attempts = 0;
+        log("当前没有徘徊神兽，保持等待；不会执行普通图鉴收集");
+      }
+      return;
     }
 
     if (!runtime.targetPlan || isCaught(save, runtime.targetPlan.speciesId)) {
@@ -674,7 +757,7 @@
       runtime.target = `dex:${next.speciesId}`;
       runtime.userTeamOverride = false;
       runtime.attempts = 0;
-      const plan = recommendTeam(save, [next.speciesId]);
+      const plan = recommendTeam(save, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
       await exclusive("规划缺失图鉴", async () => {
         await applyRecommendedTeam(plan, species(next.speciesId)?.n || String(next.speciesId));
         if (readSave().adv.chapter !== next.chapter) await switchChapter(next.chapter);
@@ -752,7 +835,9 @@
       detectManualTeamChange(save);
       await manageBerries(save);
       if (runtime.mode === "push") await pushTick(save);
-      else if (runtime.mode === "collect") await collectTick(save);
+      else if (runtime.mode === "collect") await collectTick(save, { trackRoamers: false, collectMissing: true });
+      else if (runtime.mode === "roaming") await collectTick(save, { trackRoamers: true, collectMissing: false });
+      else if (runtime.mode === "combined") await collectTick(save, { trackRoamers: true, collectMissing: true });
       renderStatus();
     } catch (error) {
       diagnostic("主循环", error);
@@ -775,11 +860,18 @@
     runtime.target = null;
     runtime.targetPlan = null;
     runtime.teamPlan = null;
+    runtime.chapterReset = null;
     runtime.userTeamOverride = false;
     runtime.error = null;
     runtime.attempts = 0;
     localStorage.setItem(SESSION_KEY, JSON.stringify({ mode, running: true, at: Date.now() }));
-    log(mode === "push" ? "推图模式已启动" : "全图鉴收集模式已启动");
+    const labels = {
+      push: "推图模式",
+      collect: "普通图鉴收集",
+      roaming: "徘徊神兽追踪",
+      combined: "普通图鉴与神兽协同收集",
+    };
+    log(`${labels[mode] || mode}已启动`);
     tick();
   }
 
@@ -796,6 +888,7 @@
     runtime.target = null;
     runtime.targetPlan = null;
     runtime.teamPlan = null;
+    runtime.chapterReset = null;
     runtime.userTeamOverride = false;
     runtime.expectedChapter = null;
     runtime.pushRegion = null;
@@ -821,6 +914,87 @@
     log(`已将队伍${source + 1}复制到队伍${destination + 1}`);
   }
 
+  function roamingPriorityIds() {
+    return [
+      ...settings.roamingPriority.filter((id) => ROAMING_LEGENDARIES.includes(id)),
+      ...ROAMING_LEGENDARIES.filter((id) => !settings.roamingPriority.includes(id)),
+    ];
+  }
+
+  function roamingPriorityHtml() {
+    let save = null;
+    try { save = readSave(); } catch { /* ignore */ }
+    const now = Date.now();
+    return roamingPriorityIds().map((id, index, ids) => {
+      const meta = species(id);
+      const state = save?.roam?.at?.[id] || {};
+      const roamingChapter = state.ch ?? state.chapter;
+      const until = state.until ?? state.at ?? 0;
+      let status = "未出现";
+      if (save && isCaught(save, id)) status = "已捕获";
+      else if (Number.isInteger(roamingChapter) && until > now) {
+        status = `出现中 · ${chapter(roamingChapter)?.name || `章节${roamingChapter}`} · ${Math.ceil((until - now) / 60_000)}分`;
+      }
+      return `<div class="pca-priority-item"><b>${index + 1}. #${String(id).padStart(3, "0")} ${escapeHtml(meta?.n || id)}</b><span>${escapeHtml(status)}</span><button class="pca-btn" type="button" data-act="roam-up" data-roamer="${id}" ${index === 0 ? "disabled" : ""} aria-label="上移${escapeHtml(meta?.n || id)}">↑</button><button class="pca-btn" type="button" data-act="roam-down" data-roamer="${id}" ${index === ids.length - 1 ? "disabled" : ""} aria-label="下移${escapeHtml(meta?.n || id)}">↓</button></div>`;
+    }).join("");
+  }
+
+  function renderRoamingPriority() {
+    const root = document.querySelector("#pca-roaming-priority");
+    if (root) root.innerHTML = roamingPriorityHtml();
+  }
+
+  function moveRoamingPriority(id, offset) {
+    const ids = roamingPriorityIds();
+    const from = ids.indexOf(id);
+    const to = from + offset;
+    if (from < 0 || to < 0 || to >= ids.length) return;
+    [ids[from], ids[to]] = [ids[to], ids[from]];
+    settings.roamingPriority = ids;
+    saveSettings();
+    renderRoamingPriority();
+    log(`徘徊神兽优先级：${ids.map((item) => species(item)?.n || item).join(" → ")}`);
+  }
+
+  function resolveManualTarget(token) {
+    if (/^\d+$/.test(token)) return Number(token);
+    const entry = Object.entries(DATA.species).find(([, meta]) => meta.n === token);
+    return entry ? Number(entry[0]) : null;
+  }
+
+  function manualTargetPreviewHtml(value) {
+    const tokens = String(value || "").split(/[，,\s]+/).filter(Boolean);
+    if (!tokens.length) return "输入编号或名称后，这里会显示对应的宝可梦。";
+    let save = null;
+    try { save = readSave(); } catch { /* ignore */ }
+    return tokens.map((token) => {
+      const id = resolveManualTarget(token);
+      const meta = species(id);
+      if (!meta) return `<span class="pca-target invalid">${escapeHtml(token)}：无对应宝可梦</span>`;
+      const labels = [`#${String(id).padStart(3, "0")} ${meta.n}`];
+      let state = "可加入";
+      let className = "valid";
+      if (ROAMING_LEGENDARIES.includes(id)) {
+        state = "徘徊神兽，由下方优先级管理";
+        className = "warn";
+      } else if (save && isCaught(save, id)) {
+        state = "已捕获，不会加入";
+        className = "warn";
+      } else if (save && !plansForSpecies(save, id).length) {
+        state = "当前范围没有可用野外地点";
+        className = "warn";
+      } else if (meta.g || meta.m) {
+        state = "神兽/幻兽 · 可作为野外目标";
+      }
+      return `<span class="pca-target ${className}">${escapeHtml(labels[0])}<small>${escapeHtml(state)}</small></span>`;
+    }).join("");
+  }
+
+  function renderManualTargetPreview(value = document.querySelector("#pca-manual-targets")?.value) {
+    const root = document.querySelector("#pca-manual-target-preview");
+    if (root) root.innerHTML = manualTargetPreviewHtml(value);
+  }
+
   function renderPanel() {
     const style = document.createElement("style");
     style.textContent = `
@@ -835,6 +1009,9 @@
       .pca-card{background:#1d2235;border:1px solid #323a55;border-radius:10px;padding:8px 9px;margin:8px 0}.pca-card h4{margin:0 0 6px;font-size:13px;color:#a9b9e4}.pca-kv{display:grid;grid-template-columns:72px 1fr;gap:4px 8px}.pca-kv span:nth-child(odd){color:#8fa0c6}.pca-status.run{color:#7ee787}.pca-status.pause{color:#f2cc60}.pca-status.err{color:#ff7b72}
       .pca-berries{display:grid;grid-template-columns:1fr 54px;gap:4px 6px}.pca-berry{display:flex;gap:6px;align-items:center}.pca-berries input[type=number]{width:54px;background:#111524;color:#fff;border:1px solid #46506c;border-radius:6px;padding:3px}
       .pca-select{background:#111524;color:#fff;border:1px solid #46506c;border-radius:7px;padding:5px}.pca-log{max-height:120px;overflow:auto;white-space:pre-wrap;color:#aeb9d6;font-size:11px}.pca-log .error{color:#ff8a82}.pca-note{color:#8999bd;font-size:11px}.pca-team{white-space:normal;color:#d8e1ff}
+      .pca-priority-item{display:grid;grid-template-columns:1fr auto 30px 30px;gap:5px;align-items:center;margin:5px 0}.pca-priority-item span{color:#8999bd;font-size:11px;text-align:right}.pca-priority-item .pca-btn{padding:3px 0}
+      .pca-targets{display:grid;gap:4px;margin-top:6px}.pca-target{display:flex;justify-content:space-between;gap:8px;border:1px solid #3b4667;border-radius:6px;padding:4px 6px;background:#171c2d}.pca-target small{color:#8fa0c6;text-align:right}.pca-target.valid{border-color:#35684c}.pca-target.warn{border-color:#766129}.pca-target.invalid{border-color:#7b3941;color:#ff9b94}
+      .pca-task-grid{display:grid;grid-template-columns:1fr;gap:7px}.pca-task-btn{width:100%;min-height:36px}.pca-controls .pca-btn{flex:1}
     `;
     document.head.append(style);
 
@@ -845,7 +1022,7 @@
       <div class="pca-head"><b>PokéCatch 助手</b><span class="pca-ver">v${VERSION}</span><button class="pca-btn" data-act="collapse">${settings.collapsed ? "展开" : "收起"}</button></div>
       <div class="pca-body">
         <div class="pca-tabs" role="tablist" aria-label="助手功能">
-          ${[["push","推图"],["collect","全图鉴"],["team","阵容"],["berries","果子"],["diagnostics","诊断"]].map(([key,label]) => `<button class="pca-tab ${settings.activeTab === key ? "active" : ""}" type="button" role="tab" aria-selected="${settings.activeTab === key}" data-tab="${key}">${label}</button>`).join("")}
+          ${[["push","推图"],["collect","收集"],["team","阵容"],["berries","果子"],["diagnostics","诊断"]].map(([key,label]) => `<button class="pca-tab ${settings.activeTab === key ? "active" : ""}" type="button" role="tab" aria-selected="${settings.activeTab === key}" data-tab="${key}">${label}</button>`).join("")}
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "push" ? "active" : ""}" role="tabpanel" data-tabpanel="push">
           <div class="pca-row"><button class="pca-btn primary pca-grow" data-act="push">开始推图</button><button class="pca-btn pca-grow" data-act="pause">暂停/继续</button><button class="pca-btn danger" data-act="stop">停止</button></div>
@@ -853,14 +1030,22 @@
           ${statusCardHtml()}
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "collect" ? "active" : ""}" role="tabpanel" data-tabpanel="collect">
-          <div class="pca-row"><button class="pca-btn primary pca-grow" data-act="collect">开始全图鉴收集</button><button class="pca-btn pca-grow" data-act="pause">暂停/继续</button><button class="pca-btn danger" data-act="stop">停止</button></div>
+          <div class="pca-card"><h4>选择收集任务</h4>
+            <div class="pca-task-grid"><button class="pca-btn primary pca-task-btn" data-act="collect">普通图鉴收集</button><button class="pca-btn primary pca-task-btn" data-act="roaming">仅追踪神兽</button><button class="pca-btn primary pca-task-btn" data-act="combined">普通 + 神兽协同</button></div>
+            <div class="pca-row pca-controls"><button class="pca-btn" data-act="pause">暂停/继续</button><button class="pca-btn danger" data-act="stop">停止</button></div>
+            <div class="pca-note">三个入口互相独立：普通收集不会追踪神兽；仅追踪神兽不会刷普通目标；需要时才选择协同。</div>
+          </div>
           ${statusCardHtml()}
-          <div class="pca-card"><h4>收集范围与优先级</h4>
+          <div class="pca-card"><h4>普通野外目标</h4>
             <div class="pca-row"><span>地区</span><select class="pca-select pca-grow" data-select-setting="regionScope"><option value="current" ${settings.regionScope === "current" ? "selected" : ""}>当前地区</option><option value="all" ${settings.regionScope === "all" ? "selected" : ""}>所有已解锁地区</option><option value="custom" ${settings.regionScope === "custom" ? "selected" : ""}>自定义地区</option></select></div>
             <div class="pca-row pca-note">${[["kanto","关都"],["johto","城都"],["hoenn","丰缘"],["sinnoh","神奥"],["unova","合众"]].map(([key,label])=>`<label><input type="checkbox" data-region="${key}" ${settings.customRegions.includes(key)?"checked":""}>${label}</label>`).join(" ")}</div>
-            <div class="pca-row"><span>神兽</span><select class="pca-select pca-grow" data-select-setting="roamingOrder"><option value="243,244,245" ${settings.roamingPriority.join() === "243,244,245" ? "selected" : ""}>雷公 → 炎帝 → 水君</option><option value="245,243,244" ${settings.roamingPriority.join() === "245,243,244" ? "selected" : ""}>水君 → 雷公 → 炎帝</option><option value="244,245,243" ${settings.roamingPriority.join() === "244,245,243" ? "selected" : ""}>炎帝 → 水君 → 雷公</option></select></div>
             <div class="pca-row"><input class="pca-select pca-grow" id="pca-manual-targets" value="${settings.manualTargets.join(",")}" placeholder="手动优先图鉴编号，如 214,155"><button class="pca-btn" data-act="targets">应用</button></div>
-            <div class="pca-note">手动列表只接受尚未捕获且可在野外获得的目标；按填写顺序优先。</div>
+            <div id="pca-manual-target-preview" class="pca-targets pca-note">${manualTargetPreviewHtml(settings.manualTargets.join(","))}</div>
+            <div class="pca-note">只会加入尚未捕获、且在所选范围内有野外地点的目标；按填写顺序优先。</div>
+          </div>
+          <div class="pca-card"><h4>徘徊神兽</h4>
+            <div class="pca-note">当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。</div>
+            <div id="pca-roaming-priority">${roamingPriorityHtml()}</div>
           </div>
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "team" ? "active" : ""}" role="tabpanel" data-tabpanel="team">
@@ -901,12 +1086,20 @@
         requestAnimationFrame(() => keepPanelInViewport(panel));
       } else if (action === "push") startMode("push");
       else if (action === "collect") startMode("collect");
+      else if (action === "roaming") startMode("roaming");
+      else if (action === "combined") startMode("combined");
       else if (action === "pause") pauseMode();
       else if (action === "stop") stopMode();
       else if (action === "copy") copyTeam();
       else if (action === "reteam") regenerateTeam();
       else if (action === "targets") applyManualTargets();
+      else if (action === "roam-up") moveRoamingPriority(Number(event.target.closest("[data-roamer]")?.dataset.roamer), -1);
+      else if (action === "roam-down") moveRoamingPriority(Number(event.target.closest("[data-roamer]")?.dataset.roamer), 1);
       else if (action === "copydiag") navigator.clipboard.writeText(JSON.stringify(runtime.error || { status: "无异常", build: gameBuild() }, null, 2));
+    });
+
+    panel.addEventListener("input", (event) => {
+      if (event.target.id === "pca-manual-targets") renderManualTargetPreview(event.target.value);
     });
 
     panel.addEventListener("change", (event) => {
@@ -928,9 +1121,6 @@
       const selectSetting = event.target.dataset.selectSetting;
       if (selectSetting === "regionScope") {
         settings.regionScope = event.target.value;
-        saveSettings();
-      } else if (selectSetting === "roamingOrder") {
-        settings.roamingPriority = event.target.value.split(",").map(Number);
         saveSettings();
       }
       const region = event.target.dataset.region;
@@ -1023,20 +1213,27 @@
     const enemyIds = runtime.target?.startsWith("push:")
       ? targetEnemyIdsForChapter(save.adv.chapter)
       : [runtime.targetPlan.speciesId].filter(Boolean);
-    const plan = recommendTeam(save, enemyIds);
+    const levelWeight = runtime.target?.startsWith("push:") ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT;
+    const plan = recommendTeam(save, enemyIds, { levelWeight });
     await exclusive("手动重新生成阵容", () => applyRecommendedTeam(plan, "用户要求重新生成"));
   }
 
   function applyManualTargets() {
     const input = document.querySelector("#pca-manual-targets");
     const tokens = String(input?.value || "").split(/[，,\s]+/).filter(Boolean);
-    const byName = new Map(Object.entries(DATA.species).map(([id, meta]) => [meta.n, Number(id)]));
-    const ids = tokens.map((token) => /^\d+$/.test(token) ? Number(token) : byName.get(token)).filter((id) => species(id));
+    const save = readSave();
+    const ids = tokens
+      .map(resolveManualTarget)
+      .filter((id) => species(id))
+      .filter((id) => !ROAMING_LEGENDARIES.includes(id))
+      .filter((id) => !isCaught(save, id))
+      .filter((id) => plansForSpecies(save, id).length);
     settings.manualTargets = [...new Set(ids)];
     if (input) input.value = settings.manualTargets.join(",");
     saveSettings();
     runtime.target = null;
     runtime.targetPlan = null;
+    renderManualTargetPreview();
     log(settings.manualTargets.length ? `手动优先目标：${settings.manualTargets.map((id) => species(id).n).join("、")}` : "已恢复自动缺失图鉴排序");
   }
 
@@ -1045,13 +1242,21 @@
     if (!panel) return;
     let save = null;
     try { save = readSave(); } catch { /* ignore */ }
-    const modeLabel = runtime.mode === "push" ? "推图" : runtime.mode === "collect" ? "全图鉴收集" : "空闲";
+    const modeLabel = {
+      push: "推图",
+      collect: "普通图鉴收集",
+      roaming: "仅追踪神兽",
+      combined: "普通 + 神兽协同",
+      idle: "空闲",
+    }[runtime.mode] || "空闲";
     const modeText = `${modeLabel}${runtime.paused ? "（暂停）" : runtime.busy ? "（操作中）" : ""}`;
     panel.querySelectorAll('[data-status="mode"]').forEach((node) => {
       node.textContent = modeText;
       node.className = runtime.error ? "pca-status err" : runtime.paused ? "pca-status pause" : runtime.mode !== "idle" ? "pca-status run" : "";
     });
-    const targetName = runtime.targetPlan?.speciesId ? species(runtime.targetPlan.speciesId)?.n : runtime.targetPlan?.chapterName;
+    const targetName = runtime.target === "roam:waiting"
+      ? "等待雷公、炎帝或水君出现"
+      : runtime.targetPlan?.speciesId ? species(runtime.targetPlan.speciesId)?.n : runtime.targetPlan?.chapterName;
     panel.querySelectorAll('[data-status="target"]').forEach((node) => { node.textContent = targetName || "—"; });
     panel.querySelectorAll('[data-status="place"]').forEach((node) => { node.textContent = `${chapter(save?.adv?.chapter)?.name || "—"}${runtime.targetPlan?.zone ? ` / ${runtime.targetPlan.zone}` : ""}`; });
     let attemptText = String(runtime.attempts);
@@ -1069,6 +1274,7 @@
     panel.querySelectorAll('[data-status="buffs"]').forEach((node) => { node.textContent = activeBuffs.join("、") || "—"; });
     panel.querySelectorAll('[data-status="team"]').forEach((node) => { node.textContent = runtime.teamStatus; });
     panel.querySelector("#pca-error").textContent = runtime.error ? `${runtime.error.phase}：${runtime.error.observed}\n建议：${runtime.error.suggestion}` : `无异常 · 游戏 ${gameBuild()} · 数据 ${DATA.appBuild}`;
+    renderRoamingPriority();
   }
 
   function renderLog() {
@@ -1084,8 +1290,9 @@
   function offerResume() {
     try {
       const session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
-      if (!session?.running || !["push", "collect"].includes(session.mode)) return;
-      log(`检测到上次未结束的${session.mode === "push" ? "推图" : "收集"}任务，请手动点击开始以恢复`);
+      if (!session?.running || !["push", "collect", "roaming", "combined"].includes(session.mode)) return;
+      const labels = { push: "推图", collect: "普通图鉴收集", roaming: "神兽追踪", combined: "协同收集" };
+      log(`检测到上次未结束的${labels[session.mode]}任务，请手动点击对应入口恢复`);
       notifyUser("发现未结束任务", "为安全起见没有自动恢复，请在面板中确认启动。 ");
     } catch { /* ignore */ }
   }
@@ -1106,6 +1313,8 @@
       version: VERSION,
       startPush: () => startMode("push"),
       startCollect: () => startMode("collect"),
+      startRoaming: () => startMode("roaming"),
+      startCombined: () => startMode("combined"),
       pause: pauseMode,
       stop: stopMode,
       state: runtime,
