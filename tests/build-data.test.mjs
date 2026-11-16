@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.7.0", () => {
-  assert.equal(packageJson.version, "0.7.0");
-  assert.ok(source.includes("// @version      0.7.0"));
-  assert.ok(source.includes('const VERSION = "0.7.0"'));
-  assert.ok(viteConfig.includes('version: "0.7.0"'));
+test("userscript and development metadata share version 0.8.0", () => {
+  assert.equal(packageJson.version, "0.8.0");
+  assert.ok(source.includes("// @version      0.8.0"));
+  assert.ok(source.includes('const VERSION = "0.8.0"'));
+  assert.ok(viteConfig.includes('version: "0.8.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -737,14 +737,18 @@ test("task status remains visible in the native bar while settings use a dismiss
   assert.ok(source.includes('data-status="attempts"'));
 });
 
-test("native assistant can opt into a draggable floating window and return to the top bar", () => {
+test("native assistant can opt into a draggable resizable floating window and remember its geometry", () => {
   assert.ok(source.includes('floating: false'));
   assert.ok(source.includes('floatPosition: null'));
+  assert.ok(source.includes('floatSize: null'));
   assert.ok(source.includes('data-act="float"'));
   assert.ok(source.includes('panel.classList.toggle("floating", settings.floating)'));
   assert.ok(source.includes("#${PANEL_ID}.floating .pca-modal-shade{display:none}"));
+  assert.ok(source.includes("resize:both"));
   assert.ok(sourceFunctionText("enableFloatDragging").includes('handle.addEventListener("pointermove"'));
   assert.ok(sourceFunctionText("applyFloatPosition").includes("settings.floatPosition"));
+  assert.ok(sourceFunctionText("applyFloatPosition").includes("settings.floatSize"));
+  assert.ok(sourceFunctionText("observeFloatSize").includes("new ResizeObserver"));
 });
 
 test("local development uses vite-plugin-monkey", () => {

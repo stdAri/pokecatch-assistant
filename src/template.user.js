@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.7.0
+// @version      0.8.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.7.0";
+  const VERSION = "0.8.0";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -128,6 +128,7 @@
     collapsed: true,
     floating: false,
     floatPosition: null,
+    floatSize: null,
     language: "auto",
     activeTab: "push",
     lockTeam5: false,
@@ -170,6 +171,7 @@
     chapterReset: null,
     lastAutomatedActionAt: 0,
     floatResizeBound: false,
+    floatSizeObserver: null,
     duplicateKeep: null,
     collectionQueue: [],
     collectionQueueSignature: "",
@@ -2148,7 +2150,7 @@
       #${PANEL_ID} *{box-sizing:border-box}#${PANEL_ID} button,#${PANEL_ID} select,#${PANEL_ID} input{font:inherit}
       .pca-native-bar{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto auto;align-items:center;gap:8px;width:100%;height:44px;padding:0 10px;border:2px solid var(--line,#343b56);border-radius:var(--r-md,12px);background:var(--panel-2,#20253a);color:var(--text,#eef2ff);cursor:pointer;transition:border-color .15s,background .15s}.pca-native-bar:hover{border-color:var(--line-hover,#536080);background:var(--panel-3,#2b3350)}.pca-native-brand{font-weight:700;white-space:nowrap}.pca-native-item{min-width:0;color:var(--muted,#8fa0c6);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pca-native-item b{color:var(--text,#eef2ff);margin-left:4px}.pca-native-open{color:var(--muted,#8fa0c6);font-size:12px;white-space:nowrap}
       .pca-modal{display:none;position:fixed;inset:0;z-index:2147483646;align-items:center;justify-content:center;padding:24px}.pca-modal-shade{position:absolute;inset:0;border:0;background:#050711b8;cursor:default}.pca-dialog{position:relative;width:min(620px,calc(100vw - 32px));max-height:min(82vh,760px);display:flex;flex-direction:column;background:#151827;border:1px solid #46506c;border-radius:14px;box-shadow:0 20px 60px #000b;overflow:hidden}#${PANEL_ID}:not(.collapsed) .pca-modal{display:flex}
-      #${PANEL_ID}.floating .pca-modal{pointer-events:none;padding:0}#${PANEL_ID}.floating .pca-modal-shade{display:none}#${PANEL_ID}.floating .pca-dialog{position:fixed;pointer-events:auto;max-height:calc(100vh - 24px)}#${PANEL_ID}.floating .pca-head{cursor:move;touch-action:none}
+      #${PANEL_ID}.floating .pca-modal{pointer-events:none;padding:0}#${PANEL_ID}.floating .pca-modal-shade{display:none}#${PANEL_ID}.floating .pca-dialog{position:fixed;pointer-events:auto;resize:both;min-width:min(360px,calc(100vw - 24px));min-height:min(240px,calc(100vh - 24px));max-width:calc(100vw - 24px);max-height:calc(100vh - 24px)}#${PANEL_ID}.floating .pca-head{cursor:move;touch-action:none}
       .pca-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#20253a;border-bottom:1px solid #343b56;user-select:none}.pca-head b{flex:1}.pca-head button{cursor:pointer}.pca-ver{color:#8ea0ca;font-size:11px}
       .pca-body{overflow:auto;min-height:0}.pca-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px;padding:8px 12px;background:#181d2d;border-bottom:1px solid #343b56}.pca-summary span{color:#8fa0c6;min-width:0}.pca-summary b{color:#eef2ff;margin-left:5px}.pca-summary-main{display:contents}.pca-summary-extra{display:contents}
       .pca-tabs{display:flex;overflow-x:auto;background:#181c2c;border-bottom:1px solid #343b56;padding:0 6px}.pca-tab{flex:0 0 auto;border:0;border-bottom:2px solid transparent;background:transparent;color:#94a3c8;padding:9px 8px;cursor:pointer}.pca-tab:hover{color:#dbe5ff}.pca-tab.active{color:#fff;border-bottom-color:#6f9cff;background:#20263a}
@@ -2254,6 +2256,7 @@
     host.append(panel);
     applyFloatPosition(panel);
     enableFloatDragging(panel);
+    observeFloatSize(panel);
 
     panel.addEventListener("click", (event) => {
       const tab = event.target.closest("[data-tab]")?.dataset.tab;
@@ -2275,6 +2278,7 @@
         if (!settings.floating && dialog) {
           const rect = dialog.getBoundingClientRect();
           settings.floatPosition = { left: Math.round(rect.left), top: Math.round(rect.top) };
+          settings.floatSize = { width: Math.round(rect.width), height: Math.round(rect.height) };
         }
         settings.floating = !settings.floating;
         saveSettings();
@@ -2420,18 +2424,47 @@
     if (!settings.floating) {
       dialog.style.left = "";
       dialog.style.top = "";
+      dialog.style.width = "";
+      dialog.style.height = "";
       return;
     }
-    const rect = dialog.getBoundingClientRect();
-    const width = rect.width || Math.min(settings.activeTab === "training" ? 780 : 620, window.innerWidth - 24);
-    const height = rect.height || Math.min(760, window.innerHeight - 24);
+    const initialRect = dialog.getBoundingClientRect();
+    const minWidth = Math.min(360, window.innerWidth - 24);
+    const minHeight = Math.min(240, window.innerHeight - 24);
+    const width = Math.max(minWidth, Math.min(Number(settings.floatSize?.width) || initialRect.width || (settings.activeTab === "training" ? 780 : 620), window.innerWidth - 24));
+    const height = Math.max(minHeight, Math.min(Number(settings.floatSize?.height) || initialRect.height || 760, window.innerHeight - 24));
+    dialog.style.width = `${Math.round(width)}px`;
+    dialog.style.height = `${Math.round(height)}px`;
     const requested = settings.floatPosition || { left: window.innerWidth - width - 14, top: 14 };
     const left = Math.max(0, Math.min(Number(requested.left) || 0, window.innerWidth - width));
     const top = Math.max(0, Math.min(Number(requested.top) || 0, window.innerHeight - height));
     dialog.style.left = `${Math.round(left)}px`;
     dialog.style.top = `${Math.round(top)}px`;
     settings.floatPosition = { left: Math.round(left), top: Math.round(top) };
+    settings.floatSize = { width: Math.round(width), height: Math.round(height) };
     saveSettings();
+  }
+
+  function observeFloatSize(panel) {
+    runtime.floatSizeObserver?.disconnect();
+    const dialog = panel.querySelector(".pca-dialog");
+    if (!dialog || typeof ResizeObserver !== "function") return;
+    runtime.floatSizeObserver = new ResizeObserver(() => {
+      if (!settings.floating || settings.collapsed) return;
+      const rect = dialog.getBoundingClientRect();
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      if (width <= 0 || height <= 0) return;
+      settings.floatSize = { width, height };
+      settings.floatPosition = {
+        left: Math.round(Math.max(0, Math.min(rect.left, window.innerWidth - width))),
+        top: Math.round(Math.max(0, Math.min(rect.top, window.innerHeight - height))),
+      };
+      dialog.style.left = `${settings.floatPosition.left}px`;
+      dialog.style.top = `${settings.floatPosition.top}px`;
+      saveSettings();
+    });
+    runtime.floatSizeObserver.observe(dialog);
   }
 
   function enableFloatDragging(panel) {
