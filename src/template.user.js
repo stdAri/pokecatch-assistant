@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.4.1
+// @version      0.4.2
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.4.1";
+  const VERSION = "0.4.2";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -52,8 +52,9 @@
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
       duplicateKeepTitle: "重复宝可梦保留", enableDuplicateKeeps: "全部开启", disableDuplicateKeeps: "全部关闭", cancelDuplicateKeeps: "取消批量操作",
+      duplicateKeepRegions: "处理地区",
       duplicateKeepNote: "逐编号检查当前可访问、可重复获取的非传说宝可梦；已符合目标状态的编号会跳过。游戏实际按进化家族共享开关，异色与普通个体也共用设置。重复宝可梦会少一次约3级的家族经验。",
-      duplicateKeepIdle: "尚未执行", duplicateKeepConfirmOn: "逐编号检查并为当前可访问的宝可梦开启“保留重复”？", duplicateKeepConfirmOff: "逐编号检查并关闭当前可访问宝可梦的“保留重复”？",
+      duplicateKeepIdle: "尚未执行", duplicateKeepConfirmOn: "逐编号检查并为选中地区的宝可梦开启“保留重复”？", duplicateKeepConfirmOff: "逐编号检查并关闭选中地区宝可梦的“保留重复”？",
       berryTitle: "战斗增益果子（全部默认关闭）", reserve: "最低保留数量", berryNote: "右侧数字为最低保留量；普通与金色捕获果同时开启时优先金色。",
       notifications: "通知", sound: "页面提示音", desktop: "桌面通知", diagnostic: "诊断", noError: "无异常", copyDiagnostic: "复制诊断", logs: "日志",
       statusTitle: "当前任务状态", task: "任务", target: "目标", place: "位置", attempts: "尝试", buffs: "增益", fifthTeam: "第五队", idle: "空闲", notGenerated: "未生成",
@@ -76,8 +77,9 @@
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
       duplicateKeepTitle: "Keep duplicates", enableDuplicateKeeps: "Enable all", disableDuplicateKeeps: "Disable all", cancelDuplicateKeeps: "Cancel bulk action",
+      duplicateKeepRegions: "Regions to process",
       duplicateKeepNote: "Checks each accessible, repeatable non-Legendary Pokédex number and skips entries already in the requested state. The game shares this setting across an evolution family and between Shiny and regular Pokemon. One duplicate worth about three family levels is retained.",
-      duplicateKeepIdle: "Not run", duplicateKeepConfirmOn: "Check every accessible Pokédex number and enable Keep duplicates?", duplicateKeepConfirmOff: "Check every accessible Pokédex number and disable Keep duplicates?",
+      duplicateKeepIdle: "Not run", duplicateKeepConfirmOn: "Check every accessible Pokédex number in the selected regions and enable Keep duplicates?", duplicateKeepConfirmOff: "Check every accessible Pokédex number in the selected regions and disable Keep duplicates?",
       berryTitle: "Battle berries (all off by default)", reserve: "Minimum reserve", berryNote: "The number on the right is the reserve. Golden Razz is preferred when both catch berries are enabled.",
       notifications: "Notifications", sound: "Page sound", desktop: "Desktop notifications", diagnostic: "Diagnostics", noError: "No errors", copyDiagnostic: "Copy diagnostics", logs: "Logs",
       statusTitle: "Current task", task: "Mode", target: "Target", place: "Location", attempts: "Attempts", buffs: "Buffs", fifthTeam: "Team 5", idle: "Idle", notGenerated: "Not generated",
@@ -99,6 +101,7 @@
     soundNotifications: true,
     regionScope: "current",
     customRegions: ["kanto", "johto"],
+    duplicateKeepRegions: ["kanto", "johto", "hoenn", "sinnoh", "unova"],
     manualTargets: [],
     roamingPriority: [...ROAMING_LEGENDARIES],
     berries: Object.fromEntries(Object.keys(BERRIES).map((key) => [key, { enabled: false, reserve: 0 }])),
@@ -631,11 +634,17 @@
     if (desiredUids.some((uid) => !final.includes(uid))) throw new Error("第五队未能完整应用");
   }
 
-  function duplicateKeepCandidates(save) {
+  function pokemonHomeRegion(mon) {
+    if (mon?.reg === "kanto2") return "johto";
+    return ["kanto", "johto", "hoenn", "sinnoh", "unova"].includes(mon?.reg) ? mon.reg : "kanto";
+  }
+
+  function duplicateKeepCandidates(save, regions = settings.duplicateKeepRegions) {
     const representatives = new Map();
     for (const mon of save.mons || []) {
       const meta = species(mon.id);
       if (!meta || meta.g || meta.m) continue;
+      if (!regions.includes(pokemonHomeRegion(mon))) continue;
       if (representatives.has(mon.id)) continue;
       representatives.set(mon.id, mon);
     }
@@ -690,7 +699,7 @@
     if (runtime.duplicateKeep?.active) return;
     if (!confirm(enabled ? t("duplicateKeepConfirmOn") : t("duplicateKeepConfirmOff"))) return;
     await exclusive(t("duplicateKeepTitle"), async () => {
-      const candidates = duplicateKeepCandidates(readSave());
+      const candidates = duplicateKeepCandidates(readSave(), settings.duplicateKeepRegions);
       runtime.duplicateKeep = { active: true, enabled, total: candidates.length, done: 0, changed: 0, skipped: 0, cancelled: false };
       renderDuplicateKeepProgress();
       try {
@@ -1494,6 +1503,7 @@
       .pca-priority-item{display:grid;grid-template-columns:1fr auto 30px 30px;gap:5px;align-items:center;margin:5px 0}.pca-priority-item span{color:#8999bd;font-size:11px;text-align:right}.pca-priority-item .pca-btn{padding:3px 0}
       .pca-targets{display:grid;gap:4px;margin-top:6px}.pca-target{display:flex;justify-content:space-between;gap:8px;border:1px solid #3b4667;border-radius:6px;padding:4px 6px;background:#171c2d}.pca-target small{color:#8fa0c6;text-align:right}.pca-target.valid{border-color:#35684c}.pca-target.warn{border-color:#766129}.pca-target.invalid{border-color:#7b3941;color:#ff9b94}
       .pca-task-grid{display:grid;grid-template-columns:1fr;gap:7px}.pca-task-btn{width:100%;min-height:36px}.pca-controls .pca-btn{flex:1}
+      .pca-region-list{flex-wrap:wrap}
     `;
     document.head.append(style);
 
@@ -1537,6 +1547,8 @@
           <button class="pca-btn" data-act="reteam">${t("regenerate")}</button>
           </div>
           <div class="pca-card"><h4>${t("duplicateKeepTitle")}</h4>
+          <div class="pca-note">${t("duplicateKeepRegions")}</div>
+          <div class="pca-row pca-note pca-region-list">${[["kanto",t("kanto")],["johto",t("johto")],["hoenn",t("hoenn")],["sinnoh",t("sinnoh")],["unova",t("unova")]].map(([key,label])=>`<label><input type="checkbox" data-duplicate-region="${key}" ${settings.duplicateKeepRegions.includes(key)?"checked":""}>${label}</label>`).join(" ")}</div>
           <div class="pca-row pca-controls"><button class="pca-btn" data-act="dup-on">${t("enableDuplicateKeeps")}</button><button class="pca-btn" data-act="dup-off">${t("disableDuplicateKeeps")}</button><button class="pca-btn danger" data-act="dup-cancel">${t("cancelDuplicateKeeps")}</button></div>
           <div id="pca-duplicate-keep-status" class="pca-note">${t("duplicateKeepIdle")}</div><div class="pca-note">${t("duplicateKeepNote")}</div>
           </div>
@@ -1623,6 +1635,13 @@
         settings.customRegions = event.target.checked
           ? [...new Set([...settings.customRegions, region])]
           : settings.customRegions.filter((item) => item !== region);
+        saveSettings();
+      }
+      const duplicateRegion = event.target.dataset.duplicateRegion;
+      if (duplicateRegion) {
+        settings.duplicateKeepRegions = event.target.checked
+          ? [...new Set([...settings.duplicateKeepRegions, duplicateRegion])]
+          : settings.duplicateKeepRegions.filter((item) => item !== duplicateRegion);
         saveSettings();
       }
     });

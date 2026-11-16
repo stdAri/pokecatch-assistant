@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.4.1", () => {
-  assert.equal(packageJson.version, "0.4.1");
-  assert.ok(source.includes("// @version      0.4.1"));
-  assert.ok(source.includes('const VERSION = "0.4.1"'));
-  assert.ok(viteConfig.includes('version: "0.4.1"'));
+test("userscript and development metadata share version 0.4.2", () => {
+  assert.equal(packageJson.version, "0.4.2");
+  assert.ok(source.includes("// @version      0.4.2"));
+  assert.ok(source.includes('const VERSION = "0.4.2"'));
+  assert.ok(viteConfig.includes('version: "0.4.2"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -378,17 +378,18 @@ test("duplicate retention bulk controls check each owned Pokedex number", () => 
   assert.ok(source.includes('data-act="dup-on"'));
   assert.ok(source.includes('data-act="dup-off"'));
   assert.ok(source.includes('data-act="dup-cancel"'));
+  assert.ok(source.includes('data-duplicate-region="${key}"'));
   assert.ok(source.includes('detail.querySelector(".keep-row")'));
-  const { species, duplicateKeepCandidates } = sourceFunctions(
-    ["species", "duplicateKeepCandidates"],
+  const { species, pokemonHomeRegion, duplicateKeepCandidates } = sourceFunctions(
+    ["species", "pokemonHomeRegion", "duplicateKeepCandidates"],
     { DATA: data },
   );
   assert.deepEqual(
-    Array.from(duplicateKeepCandidates({ mons: [{ uid: "a", id: 1 }, { uid: "b", id: 2 }, { uid: "c", id: 4 }] }), (item) => item.id),
-    [1, 2, 4],
+    Array.from(duplicateKeepCandidates({ mons: [{ uid: "a", id: 1, reg: "kanto" }, { uid: "b", id: 2, reg: "kanto2" }, { uid: "c", id: 4, reg: "hoenn" }] }, ["johto"]), (item) => item.id),
+    [2],
   );
   assert.deepEqual(
-    Array.from(duplicateKeepCandidates({ mons: [{ uid: "a", id: 1 }, { uid: "b", id: 1 }, { uid: "c", id: 4 }] }), (item) => item.id),
+    Array.from(duplicateKeepCandidates({ mons: [{ uid: "a", id: 1 }, { uid: "b", id: 1, reg: "kanto" }, { uid: "c", id: 4, reg: "hoenn" }] }, ["kanto", "hoenn"]), (item) => item.id),
     [1, 4],
   );
 });
