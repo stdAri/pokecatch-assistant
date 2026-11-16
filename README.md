@@ -3,7 +3,7 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.5.1-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.2-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
@@ -13,7 +13,7 @@
 - 根据章节 Boss、已观察到的敌人、属性克制、种族能力、招式和长期培养价值生成第五队；
 - 等级不足时持续练级；等级因素排除后，连续失败会轮换阵容；
 - 推图、普通缺失图鉴、仅追踪雷公/炎帝/水君、普通与神兽协同四个入口互相独立；推图不追踪神兽，三个收集入口同一时间只运行一个；
-- 收集页可按当前地区、所有已解锁地区或自定义地区严格筛选目标，并显示实际地区；跨地区自动目标固定按关都、城都、丰缘、神奥、合众顺序处理，地区内按出现效率、前置节点及当地队伍等级适配度排序；默认开启“为全收集自动推图”，仅在范围内没有立即可抓目标、但仍有目标受剧情锁定时推进一个解锁阶段，随后立即重新扫描，也可关闭；
+- 收集页可按当前地区、所有已解锁地区或自定义地区严格筛选目标，并显示最多5个自动待抓目标；跨地区自动目标固定按关都、城都、丰缘、神奥、合众顺序处理，地区内按出现效率、前置节点及当地队伍等级适配度排序；默认开启“为全收集自动推图”，仅在范围内没有立即可抓目标、但仍有目标受剧情锁定时推进一个解锁阶段，随后立即重新扫描，也可关闭；
 - 普通野外目标与徘徊神兽分区设置，神兽优先级可直接上移、下移；
 - 神兽候选由游戏 `roam.at` 实时列表驱动；失败后立即切章重置，目标消失后只确认一次捕获结果并重新规划，状态冲突时安全暂停；
 - 收集任务配队会提高当前等级权重，以应对 100 级徘徊神兽；推图仍优先长期培养价值；
@@ -47,7 +47,7 @@
 3. 在 Tampermonkey 安装页面确认脚本名称与权限后保存。
 4. 刷新 Poke'Catch，右下角会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前已推送版本的固定安装地址：[安装 PokeCatch 助手 v0.5.1](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/23d278654602a1d39b9e2e407f39d41db665d78d/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.5.1 提交，不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。远端 CI、正式存档实机验证、标签和 Release 状态以项目发布记录为准。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前已推送版本的固定安装地址：[安装 PokeCatch 助手 v0.5.2](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/9d34cc37a2b46abef24463db3db7c5f8a76f6a26/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.5.2 提交，不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。远端 CI、正式存档实机验证、标签和 Release 状态以项目发布记录为准。
 
 如果浏览器没有自动打开 Tampermonkey 安装页，也可以打开 Tampermonkey 的“添加新脚本”，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
