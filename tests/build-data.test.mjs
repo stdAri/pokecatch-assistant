@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.5.0", () => {
-  assert.equal(packageJson.version, "0.5.0");
-  assert.ok(source.includes("// @version      0.5.0"));
-  assert.ok(source.includes('const VERSION = "0.5.0"'));
-  assert.ok(viteConfig.includes('version: "0.5.0"'));
+test("userscript and development metadata share version 0.5.1", () => {
+  assert.equal(packageJson.version, "0.5.1");
+  assert.ok(source.includes("// @version      0.5.1"));
+  assert.ok(source.includes('const VERSION = "0.5.1"'));
+  assert.ok(viteConfig.includes('version: "0.5.1"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -236,8 +236,9 @@ test("weather-limited forms stay eligible and outrank ordinary automatic targets
     weatherFlexibility, planPriority, comparePriority } = sourceFunctions([
     "chapter", "currentRegion", "habitatForRoute", "unlockedRegions", "collectionScopeRegions",
     "availableChapters", "chaptersInCollectionScope", "routeCanContainSpecies", "potentialWildTarget",
-    "weatherFlexibility", "planPriority", "comparePriority",
-  ], { DATA: data, settings });
+    "pokemonHomeRegion", "collectionRegionRank", "collectionTeamLevelForRegion", "collectionLevelFactor",
+    "collectionPlanEfficiency", "weatherFlexibility", "planPriority", "comparePriority",
+  ], { DATA: data, REGION_ORDER: ["kanto", "johto", "hoenn", "sinnoh", "unova"], settings });
   const save = { adv: { chapter: 15, unlocked: 20 } };
   assert.equal(potentialWildTarget(save, 20127), true);
   const stormOnly = { speciesId: 20124, chapter: 15, zone: "阿露福遗迹", sourceZone: "Ruines d'Alpha", weatherLimited: true, weight: 2, score: 2 };
@@ -250,6 +251,51 @@ test("weather-limited forms stay eligible and outrank ordinary automatic targets
   assert.equal(chapter(15).name, "昆虫徽章");
   assert.equal(currentRegion(save), "johto");
   assert.ok(availableChapters(save).length > 0);
+});
+
+test("collection queue keeps region order and penalizes maps above the local team's level", () => {
+  const settings = { regionScope: "all", customRegions: [], manualTargets: [] };
+  const helpers = sourceFunctions([
+    "species",
+    "chapter",
+    "currentRegion",
+    "pokemonHomeRegion",
+    "unlockedRegions",
+    "collectionScopeRegions",
+    "collectionRegionRank",
+    "collectionTeamLevelForRegion",
+    "collectionLevelFactor",
+    "collectionPlanEfficiency",
+    "compareCollectionPlans",
+    "weatherFlexibility",
+    "planPriority",
+    "comparePriority",
+  ], { DATA: data, REGION_ORDER: ["kanto", "johto", "hoenn", "sinnoh", "unova"], settings });
+  const hoennStart = data.chapters.find((item) => item.region === "hoenn");
+  const save = {
+    adv: { chapter: hoennStart.index, unlocked: hoennStart.index },
+    mons: [
+      ...Array.from({ length: 6 }, (_, index) => ({ uid: `kanto-${index}`, reg: "kanto", level: 50 })),
+      ...Array.from({ length: 4 }, (_, index) => ({ uid: `hoenn-${index}`, reg: "hoenn", level: 5 + index })),
+    ],
+  };
+  const kantoPlan = { speciesId: 10, chapter: 0, score: 1, prefixCost: 2 };
+  const hoennPlan = { speciesId: 279, chapter: hoennStart.index, score: 100, prefixCost: 1 };
+  assert.ok(helpers.comparePriority(
+    helpers.planPriority(save, kantoPlan),
+    helpers.planPriority(save, hoennPlan),
+  ) < 0, "an efficient later-region target must not jump ahead of an earlier region");
+
+  const easyKantoPlan = { speciesId: 10, chapter: 0, score: 2, prefixCost: 2 };
+  const hardKantoChapter = data.chapters
+    .filter((item) => item.region === "kanto")
+    .sort((a, b) => b.ace - a.ace)[0];
+  const hardKantoPlan = { speciesId: 11, chapter: hardKantoChapter.index, score: 2, prefixCost: 2 };
+  assert.equal(helpers.collectionLevelFactor(save, easyKantoPlan), 1);
+  assert.ok(helpers.collectionLevelFactor(save, hardKantoPlan) < 1);
+  assert.ok(helpers.compareCollectionPlans(save, easyKantoPlan, hardKantoPlan) < 0);
+  assert.ok(helpers.collectionPlanEfficiency(save, easyKantoPlan)
+    > helpers.collectionPlanEfficiency(save, hardKantoPlan));
 });
 
 test("collection queue UI shows three automatic targets and waiting farms the strongest unlocked chapter", () => {
@@ -342,6 +388,8 @@ test("collection scope and story-locked targets are resolved independently", () 
   settings.regionScope = "custom";
   settings.customRegions = ["johto"];
   assert.deepEqual(Array.from(helpers.collectionScopeRegions(save)), ["johto"]);
+  settings.customRegions = ["hoenn", "kanto", "johto"];
+  assert.deepEqual(Array.from(helpers.collectionScopeRegions(save)), ["kanto", "johto", "hoenn"]);
   settings.customRegions = [];
   assert.deepEqual(Array.from(helpers.collectionScopeRegions(save)), []);
 

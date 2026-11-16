@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.5.0
+// @version      0.5.1
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,8 +21,9 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.5.0";
+  const VERSION = "0.5.1";
   const ROAMING_LEGENDARIES = [243, 244, 245];
+  const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
   const ROAMING_PREFERRED_LEVEL = 90;
@@ -922,7 +923,7 @@
   function collectionScopeRegions(save) {
     const unlocked = unlockedRegions(save);
     if (settings.regionScope === "current") return [currentRegion(save)];
-    if (settings.regionScope === "custom") return settings.customRegions.filter((region) => unlocked.includes(region));
+    if (settings.regionScope === "custom") return unlocked.filter((region) => settings.customRegions.includes(region));
     return unlocked;
   }
 
@@ -1078,7 +1079,8 @@
   }
 
   function collectionPlansForSpecies(save, speciesId, timestamp = Number(save.lastTick) || Date.now()) {
-    return [...plansForSpecies(save, speciesId, timestamp), ...specialPlansForSpecies(save, speciesId)];
+    return [...plansForSpecies(save, speciesId, timestamp), ...specialPlansForSpecies(save, speciesId)]
+      .sort((a, b) => compareCollectionPlans(save, a, b));
   }
 
   function potentialWildTarget(save, speciesId, options) {
@@ -1156,11 +1158,46 @@
     return Object.keys(DATA.weather.types).filter((weather) => Number(habitat[weather]?.[plan.speciesId] || 0) > 0).length || Number.POSITIVE_INFINITY;
   }
 
+  function collectionRegionRank(save, plan) {
+    const region = chapter(plan.chapter)?.region;
+    const rank = collectionScopeRegions(save).indexOf(region);
+    return rank >= 0 ? rank : REGION_ORDER.length;
+  }
+
+  function collectionTeamLevelForRegion(save, region) {
+    const levels = (save?.mons || [])
+      .filter((mon) => mon?.uid && Number(mon.level) > 0 && pokemonHomeRegion(mon) === region)
+      .map((mon) => Number(mon.level))
+      .sort((a, b) => b - a)
+      .slice(0, 6);
+    return levels.length ? levels.reduce((sum, level) => sum + level, 0) / levels.length : 0;
+  }
+
+  function collectionLevelFactor(save, plan) {
+    const region = chapter(plan.chapter)?.region;
+    const teamLevel = collectionTeamLevelForRegion(save, region);
+    const mapLevel = Math.max(1, Number(plan.level || chapter(plan.chapter)?.ace || 1));
+    if (teamLevel >= mapLevel) return 1;
+    return Math.max(0.15, teamLevel / mapLevel);
+  }
+
+  function collectionPlanEfficiency(save, plan) {
+    return Number(plan.score || 0) * collectionLevelFactor(save, plan);
+  }
+
+  function compareCollectionPlans(save, left, right) {
+    return collectionRegionRank(save, left) - collectionRegionRank(save, right)
+      || collectionPlanEfficiency(save, right) - collectionPlanEfficiency(save, left)
+      || Number(left.prefixCost || 0) - Number(right.prefixCost || 0);
+  }
+
   function planPriority(save, plan) {
     const manualIndex = settings.manualTargets.indexOf(plan.speciesId);
-    if (manualIndex >= 0) return [0, manualIndex, 0, -plan.score];
-    if (plan.weatherLimited) return [1, 0, weatherFlexibility(save, plan), plan.weight || 0];
-    return [2, 0, 0, -plan.score];
+    const regionRank = collectionRegionRank(save, plan);
+    const efficiency = collectionPlanEfficiency(save, plan);
+    if (manualIndex >= 0) return [0, manualIndex, regionRank, -efficiency];
+    if (plan.weatherLimited) return [1, regionRank, weatherFlexibility(save, plan), plan.weight || 0, -efficiency];
+    return [2, regionRank, 0, -efficiency];
   }
 
   function comparePriority(left, right) {
@@ -1196,8 +1233,11 @@
       JSON.stringify(save.stats?.byReg || {}),
       JSON.stringify(save.elite || {}),
     ].join("|");
+    const teamLevels = REGION_ORDER
+      .map((region) => `${region}:${collectionTeamLevelForRegion(save, region).toFixed(2)}`)
+      .join(",");
     return [Math.floor(now / DATA.weather.slotMs), daytimePhaseAt(now), caught, settings.regionScope,
-      settings.customRegions.join(","), settings.manualTargets.join(","), roamWeather, unlocks].join(";");
+      settings.customRegions.join(","), settings.manualTargets.join(","), roamWeather, unlocks, teamLevels].join(";");
   }
 
   function refreshCollectionQueue(save, force = false) {
