@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.4.5
+// @version      0.5.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.4.5";
+  const VERSION = "0.5.0";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -47,9 +47,12 @@
       selectCollection: "选择收集任务", dexCollection: "普通图鉴收集", roamOnly: "仅追踪神兽", combined: "普通 + 神兽协同",
       collectionNote: "三个入口互相独立：普通收集不会追踪神兽；仅追踪神兽不会刷普通目标；需要时才选择协同。",
       ordinaryTargets: "普通野外目标", region: "地区", currentRegion: "当前地区", allRegions: "所有已解锁地区", customRegions: "自定义地区",
+      autoPushCollection: "为全收集自动推图",
+      autoPushCollectionNote: "当前没有可抓目标、但仍有目标被剧情锁定时，推进到下一次解锁后立即重新扫描；不会连续快速推图。",
       manualPlaceholder: "手动优先编号，如 214,201-H,493-A", apply: "应用",
-      targetNote: "只会加入尚未捕获、且在所选范围内有野外地点或已解锁特殊地点的目标；按填写顺序优先。",
+      targetNote: "只会加入尚未捕获、且在所选范围内存在获取地点的目标；剧情未解锁时可由全收集推图逐步解锁，按填写顺序优先。",
       collectionQueue: "当前待抓队列", queueEmpty: "当前没有可立即捕获的自动目标", waitingCondition: "等待条件", moneyFarm: "刷钱等待天气",
+      storyLocked: "剧情尚未解锁",
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
       duplicateKeepTitle: "重复宝可梦保留", enableDuplicateKeeps: "全部开启", disableDuplicateKeeps: "全部关闭", cancelDuplicateKeeps: "取消批量操作",
@@ -74,9 +77,12 @@
       selectCollection: "Choose a collection task", dexCollection: "Pokédex collection", roamOnly: "Roamers only", combined: "Pokédex + roamers",
       collectionNote: "These modes are independent: Pokédex collection ignores roamers, Roamers only ignores ordinary targets, and Combined coordinates both.",
       ordinaryTargets: "Ordinary wild targets", region: "Region", currentRegion: "Current region", allRegions: "All unlocked regions", customRegions: "Custom regions",
+      autoPushCollection: "Advance story for Pokédex completion",
+      autoPushCollectionNote: "When no target is catchable but story-locked targets remain, advance only to the next unlock and rescan immediately.",
       manualPlaceholder: "Priority numbers, e.g. 214,201-H,493-A", apply: "Apply",
-      targetNote: "Only uncaught targets with a wild location or unlocked special location in the selected scope are added, in the order entered.",
+      targetNote: "Only uncaught targets with a location in scope are added. Story-locked locations can be unlocked by collection story advancement.",
       collectionQueue: "Current catch queue", queueEmpty: "No automatic target is immediately available", waitingCondition: "Waiting for conditions", moneyFarm: "Farming money while waiting for weather",
+      storyLocked: "Story not yet unlocked",
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
       duplicateKeepTitle: "Keep duplicates", enableDuplicateKeeps: "Enable all", disableDuplicateKeeps: "Disable all", cancelDuplicateKeeps: "Cancel bulk action",
@@ -105,6 +111,7 @@
     soundNotifications: true,
     regionScope: "current",
     customRegions: ["kanto", "johto"],
+    autoPushForCollection: true,
     duplicateKeepRegions: ["kanto", "johto", "hoenn", "sinnoh", "unova"],
     manualTargets: [],
     roamingPriority: [...ROAMING_LEGENDARIES],
@@ -523,11 +530,18 @@
     }
     const alternatives = plansForSpecies(save, plan.speciesId).filter((item) => item.chapter !== plan.chapter);
     if (alternatives.length) {
-      runtime.targetPlan = alternatives[0];
-      await switchChapter(alternatives[0].chapter);
+      const alternative = alternatives[0];
+      const previousRegion = currentRegion(save);
+      runtime.targetPlan = alternative;
+      await switchChapter(alternative.chapter);
+      const targetSave = readSave();
+      if (currentRegion(targetSave) !== previousRegion) {
+        const team = recommendTeam(targetSave, [alternative.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
+        await applyRecommendedTeam(team, species(alternative.speciesId)?.n || String(alternative.speciesId));
+      }
       return;
     }
-    const region = currentRegion(save);
+    const region = chapter(plan.chapter)?.region || currentRegion(save);
     const transit = DATA.chapters
       .filter((item) => item.region === region && item.index <= save.adv.unlocked && item.index !== plan.chapter)
       .sort((a, b) => Math.abs(a.index - plan.chapter) - Math.abs(b.index - plan.chapter))[0];
@@ -895,13 +909,35 @@
   }
 
   function availableChapters(save) {
-    const region = currentRegion(save);
-    return DATA.chapters.filter((item) => {
-      if (item.index > save.adv.unlocked) return false;
-      if (settings.regionScope === "current") return item.region === region;
-      if (settings.regionScope === "custom") return settings.customRegions.includes(item.region);
-      return true;
-    });
+    const regions = new Set(collectionScopeRegions(save));
+    return DATA.chapters.filter((item) => item.index <= save.adv.unlocked && regions.has(item.region));
+  }
+
+  function unlockedRegions(save) {
+    return [...new Set(DATA.chapters
+      .filter((item) => item.index <= save.adv.unlocked)
+      .map((item) => item.region))];
+  }
+
+  function collectionScopeRegions(save) {
+    const unlocked = unlockedRegions(save);
+    if (settings.regionScope === "current") return [currentRegion(save)];
+    if (settings.regionScope === "custom") return settings.customRegions.filter((region) => unlocked.includes(region));
+    return unlocked;
+  }
+
+  function routeCanContainSpecies(route, speciesId) {
+    const habitat = habitatForRoute(route);
+    if (!habitat) return (route.species || []).includes(Number(speciesId));
+    return Object.values(habitat).some((table) => Number(table?.[speciesId] || 0) > 0);
+  }
+
+  function chaptersInCollectionScope(save, options) {
+    const includeStoryLocked = Boolean(options?.includeStoryLocked);
+    const regions = new Set(collectionScopeRegions(save));
+    return DATA.chapters.filter((item) => (
+      regions.has(item.region) && (includeStoryLocked || item.index <= save.adv.unlocked)
+    ));
   }
 
   function plansForSpecies(save, speciesId, timestamp = Number(save.lastTick) || Date.now()) {
@@ -1045,18 +1081,70 @@
     return [...plansForSpecies(save, speciesId, timestamp), ...specialPlansForSpecies(save, speciesId)];
   }
 
-  function potentialWildTarget(save, speciesId) {
-    for (const item of availableChapters(save)) {
+  function potentialWildTarget(save, speciesId, options) {
+    const includeStoryLocked = Boolean(options?.includeStoryLocked);
+    for (const item of chaptersInCollectionScope(save, { includeStoryLocked })) {
       for (const route of item.routes) {
-        const habitat = habitatForRoute(route);
-        if (!habitat) {
-          if (route.species?.includes(Number(speciesId))) return true;
-          continue;
-        }
-        if (Object.values(habitat).some((table) => Number(table?.[speciesId] || 0) > 0)) return true;
+        if (routeCanContainSpecies(route, speciesId)) return true;
       }
     }
     return false;
+  }
+
+  function storyLockedChapterForSpecies(save, speciesId) {
+    return chaptersInCollectionScope(save, { includeStoryLocked: true })
+      .filter((item) => item.index > save.adv.unlocked)
+      .find((item) => item.routes.some((route) => routeCanContainSpecies(route, speciesId))) || null;
+  }
+
+  function conditionContainsKind(condition, kind) {
+    if (!condition) return false;
+    if (condition.kind === kind) return true;
+    return condition.kind === "all" && (condition.list || []).some((item) => conditionContainsKind(item, kind));
+  }
+
+  function specialNeedsStoryUnlock(save, special) {
+    if (special.badge && !save.adv.badges?.includes(special.badge)) return true;
+    if (conditionContainsKind(special.condition, "league")) return true;
+    return DATA.chapters.some((item) => (
+      item.region === special.region && item.index > save.adv.unlocked
+      && item.routes.some((route) => route.areas.some((area) => special.areas.includes(area)))
+    ));
+  }
+
+  function collectionStoryUnlockPlan(save) {
+    if (!settings.autoPushForCollection) return null;
+    const scope = new Set(collectionScopeRegions(save));
+    const manual = settings.manualTargets.filter((id) => !isCaught(save, id));
+    const automatic = Object.keys(DATA.species).map(Number).filter((id) => !isCaught(save, id));
+    const targetIds = [...manual, ...automatic.filter((id) => !manual.includes(id))];
+
+    for (const region of scope) {
+      const all = DATA.chapters.filter((item) => item.region === region);
+      const unlocked = all.filter((item) => item.index <= save.adv.unlocked);
+      const frontier = unlocked.at(-1);
+      const final = all.at(-1);
+      if (!frontier || !final) continue;
+      const finalBadge = final.boss?.badge;
+      if (frontier.index === final.index && finalBadge && save.adv.badges?.includes(finalBadge)) continue;
+
+      const locked = all.filter((item) => item.index > save.adv.unlocked);
+      const targetId = targetIds.find((id) => locked.some((item) => item.routes.some((route) => routeCanContainSpecies(route, id))));
+      const lockedSpecial = (DATA.specialZones || []).find((item) => (
+        item.region === region && !isCaught(save, item.id)
+        && !specialTargetStatus(save, item.id)?.open && specialNeedsStoryUnlock(save, item)
+      ));
+      if (!targetId && !lockedSpecial) continue;
+      return {
+        unlockForCollection: true,
+        region,
+        chapter: frontier.index,
+        chapterName: frontier.name,
+        targetId: targetId || lockedSpecial?.id || null,
+        unlockedAtStart: save.adv.unlocked,
+      };
+    }
+    return null;
   }
 
   function weatherFlexibility(save, plan) {
@@ -1302,6 +1390,23 @@
     runtime.lastDeaths[frontier] = deaths;
   }
 
+  async function collectionUnlockTick(save, plan) {
+    if (save.adv.chapter !== plan.chapter) {
+      await exclusive("切换全收集解锁前沿", () => switchChapter(plan.chapter));
+      return;
+    }
+    const targetKey = `unlock:${plan.region}:${plan.chapter}`;
+    if (runtime.target !== targetKey || !runtime.teamPlan) {
+      runtime.target = targetKey;
+      runtime.targetPlan = plan;
+      runtime.userTeamOverride = false;
+      const fresh = readSave();
+      const team = recommendTeam(fresh, targetEnemyIdsForChapter(plan.chapter));
+      await exclusive("配置全收集推图阵容", () => applyRecommendedTeam(team, `${plan.chapterName} · 解锁更多图鉴`));
+      log(`为全收集推进${plan.chapterName}；下一次章节解锁后立即重新扫描`);
+    }
+  }
+
   async function collectTick(save, { trackRoamers, collectMissing }) {
     const roamers = trackRoamers ? activeRoamers(save) : [];
     if (runtime.chapterReset) {
@@ -1399,10 +1504,10 @@
       runtime.userTeamOverride = false;
       runtime.attempts = 0;
       runtime.lastRoamTries[roamer.id] = tries;
-      const plan = recommendRoamingTeam(save, roamer.id);
       await exclusive("配置神兽阵容", async () => {
-        await applyRecommendedTeam(plan, species(roamer.id)?.n || String(roamer.id));
         if (readSave().adv.chapter !== roamer.chapter) await switchChapter(roamer.chapter);
+        const plan = recommendRoamingTeam(readSave(), roamer.id);
+        await applyRecommendedTeam(plan, species(roamer.id)?.n || String(roamer.id));
       });
       return;
     }
@@ -1417,6 +1522,25 @@
         log("当前没有徘徊神兽，保持等待；不会执行普通图鉴收集");
       }
       return;
+    }
+
+    if (runtime.targetPlan?.unlockForCollection) {
+      const immediate = refreshCollectionQueue(save)[0] || null;
+      const unlockedMore = save.adv.unlocked > runtime.targetPlan.unlockedAtStart;
+      const finalBadge = chapter(runtime.targetPlan.chapter)?.boss?.badge;
+      const finishedFinale = finalBadge && save.adv.badges?.includes(finalBadge);
+      if (immediate || unlockedMore || finishedFinale) {
+        log(immediate
+          ? "出现可立即捕获的目标，暂停全收集推图并重新规划"
+          : "全收集推图已产生新解锁，立即重新扫描缺失图鉴");
+        runtime.target = null;
+        runtime.targetPlan = null;
+        runtime.teamPlan = null;
+        runtime.collectionQueueSignature = "";
+      } else {
+        await collectionUnlockTick(save, runtime.targetPlan);
+        return;
+      }
     }
 
     const preferred = refreshCollectionQueue(save)[0] || null;
@@ -1449,6 +1573,16 @@
     if (!runtime.targetPlan || (runtime.targetPlan.speciesId && isCaught(save, runtime.targetPlan.speciesId))) {
       const next = chooseMissingPlan(save);
       if (!next) {
+        const unlock = collectionStoryUnlockPlan(save);
+        if (unlock) {
+          runtime.waitingPlan = null;
+          runtime.target = null;
+          runtime.targetPlan = unlock;
+          runtime.teamPlan = null;
+          runtime.attempts = 0;
+          await collectionUnlockTick(save, unlock);
+          return;
+        }
         const waiting = nextConditionalPlan(save);
         if (waiting) {
           runtime.waitingPlan = waiting;
@@ -1478,18 +1612,29 @@
       runtime.target = `dex:${next.speciesId}`;
       runtime.userTeamOverride = false;
       runtime.attempts = 0;
-      const plan = next.special
-        ? recommendRoamingTeam(save, next.speciesId)
-        : recommendTeam(save, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
       await exclusive("规划缺失图鉴", async () => {
-        await applyRecommendedTeam(plan, species(next.speciesId)?.n || String(next.speciesId));
         if (readSave().adv.chapter !== next.chapter) await switchChapter(next.chapter);
+        const targetSave = readSave();
+        const plan = next.special
+          ? recommendRoamingTeam(targetSave, next.speciesId)
+          : recommendTeam(targetSave, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
+        await applyRecommendedTeam(plan, species(next.speciesId)?.n || String(next.speciesId));
       });
       return;
     }
 
     if (save.adv.chapter !== runtime.targetPlan.chapter) {
-      await exclusive("返回目标章节", () => switchChapter(runtime.targetPlan.chapter));
+      const previousRegion = currentRegion(save);
+      await exclusive("返回目标章节", async () => {
+        await switchChapter(runtime.targetPlan.chapter);
+        const targetSave = readSave();
+        if (currentRegion(targetSave) !== previousRegion) {
+          const plan = runtime.targetPlan.special
+            ? recommendRoamingTeam(targetSave, runtime.targetPlan.speciesId)
+            : recommendTeam(targetSave, [runtime.targetPlan.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
+          await applyRecommendedTeam(plan, species(runtime.targetPlan.speciesId)?.n || String(runtime.targetPlan.speciesId));
+        }
+      });
       return;
     }
 
@@ -1746,6 +1891,9 @@
             state = waiting
               ? `${t("waitingCondition")}：${waiting.chapterName} · ${new Date(waiting.availableAt).toLocaleString()}`
               : t("waitingCondition");
+          } else if (potentialWildTarget(save, id, { includeStoryLocked: true })) {
+            const locked = storyLockedChapterForSpecies(save, id);
+            state = `${t("storyLocked")}：${locked?.name || "—"}`;
           } else {
             state = t("noWildPlace");
           }
@@ -1815,6 +1963,9 @@
           <div class="pca-card"><h4>${t("ordinaryTargets")}</h4>
             <div class="pca-row"><span>${t("region")}</span><select class="pca-select pca-grow" data-select-setting="regionScope"><option value="current" ${settings.regionScope === "current" ? "selected" : ""}>${t("currentRegion")}</option><option value="all" ${settings.regionScope === "all" ? "selected" : ""}>${t("allRegions")}</option><option value="custom" ${settings.regionScope === "custom" ? "selected" : ""}>${t("customRegions")}</option></select></div>
             <div class="pca-row pca-note">${[["kanto",t("kanto")],["johto",t("johto")],["hoenn",t("hoenn")],["sinnoh",t("sinnoh")],["unova",t("unova")]].map(([key,label])=>`<label><input type="checkbox" data-region="${key}" ${settings.customRegions.includes(key)?"checked":""}>${label}</label>`).join(" ")}</div>
+            <div id="pca-scope-summary" class="pca-note"></div>
+            <label class="pca-row"><input type="checkbox" data-setting="autoPushForCollection" ${settings.autoPushForCollection ? "checked" : ""}>${t("autoPushCollection")}</label>
+            <div class="pca-note">${t("autoPushCollectionNote")}</div>
             <div class="pca-row"><input class="pca-select pca-grow" id="pca-manual-targets" value="${manualTargetsInputValue()}" placeholder="${t("manualPlaceholder")}"><button class="pca-btn" data-act="targets">${t("apply")}</button></div>
             <div id="pca-manual-target-preview" class="pca-targets pca-note">${manualTargetPreviewHtml(manualTargetsInputValue())}</div>
             <div class="pca-note">${t("targetNote")}</div>
@@ -1893,6 +2044,14 @@
       const setting = event.target.dataset.setting;
       if (setting) {
         settings[setting] = event.target.checked;
+        if (setting === "autoPushForCollection") {
+          runtime.collectionQueueSignature = "";
+          if (!settings.autoPushForCollection && runtime.targetPlan?.unlockForCollection) {
+            runtime.target = null;
+            runtime.targetPlan = null;
+            runtime.teamPlan = null;
+          }
+        }
         saveSettings();
       }
       const berry = event.target.dataset.berry;
@@ -2018,10 +2177,11 @@
     if (!runtime.targetPlan) return alert("当前没有目标");
     runtime.userTeamOverride = false;
     const save = readSave();
-    const enemyIds = runtime.target?.startsWith("push:")
+    const storyTarget = runtime.target?.startsWith("push:") || runtime.target?.startsWith("unlock:");
+    const enemyIds = storyTarget
       ? targetEnemyIdsForChapter(save.adv.chapter)
       : [runtime.targetPlan.speciesId].filter(Boolean);
-    const levelWeight = runtime.target?.startsWith("push:") ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT;
+    const levelWeight = storyTarget ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT;
     const plan = runtime.targetPlan.roaming || runtime.targetPlan.special
       ? recommendRoamingTeam(save, runtime.targetPlan.speciesId)
       : recommendTeam(save, enemyIds, { levelWeight });
@@ -2037,7 +2197,7 @@
       .filter((id) => species(id))
       .filter((id) => !ROAMING_LEGENDARIES.includes(id))
       .filter((id) => !isCaught(save, id))
-      .filter((id) => collectionPlansForSpecies(save, id).length || potentialWildTarget(save, id));
+      .filter((id) => collectionPlansForSpecies(save, id).length || potentialWildTarget(save, id, { includeStoryLocked: true }));
     settings.manualTargets = [...new Set(ids)];
     if (input) input.value = manualTargetsInputValue();
     saveSettings();
@@ -2063,10 +2223,18 @@
     }
     root.innerHTML = automatic.map((plan, index) => {
       const condition = [plan.phase, plan.weather].filter(Boolean).join(" / ");
-      const state = `${plan.chapterName} · ${plan.zone}${condition ? ` · ${condition}` : ""}`;
+      const region = chapter(plan.chapter)?.region;
+      const state = `${region ? `${t(region)} · ` : ""}${plan.chapterName} · ${plan.zone}${condition ? ` · ${condition}` : ""}`;
       const active = runtime.targetPlan?.speciesId === plan.speciesId ? " valid" : "";
       return `<div class="pca-target${active}"><span>${index + 1}. #${escapeHtml(speciesDisplayNumber(plan.speciesId))} ${escapeHtml(species(plan.speciesId)?.n || plan.speciesId)}</span><small>${escapeHtml(state)}</small></div>`;
     }).join("");
+  }
+
+  function renderCollectionScope(save) {
+    const root = document.querySelector("#pca-scope-summary");
+    if (!root || !save) return;
+    const regions = collectionScopeRegions(save).map((region) => t(region));
+    root.textContent = `${t("region")}：${regions.join(language() === "en" ? ", " : "、") || (language() === "en" ? "None selected" : "未选择地区")}`;
   }
 
   function renderStatus() {
@@ -2108,6 +2276,7 @@
     panel.querySelectorAll('[data-status="team"]').forEach((node) => { node.textContent = runtime.teamStatus === "未生成" ? t("notGenerated") : runtime.teamStatus; });
     panel.querySelector("#pca-error").textContent = runtime.error ? `${runtime.error.phase}: ${runtime.error.observed}\n${t("suggestion")}: ${runtime.error.suggestion}` : `${t("noError")} · ${t("game")} ${gameBuild()} · ${t("data")} ${DATA.appBuild}`;
     renderRoamingPriority();
+    renderCollectionScope(save);
     renderCollectionQueue();
   }
 

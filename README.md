@@ -3,7 +3,7 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.4.5-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.5.0-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
@@ -13,6 +13,7 @@
 - 根据章节 Boss、已观察到的敌人、属性克制、种族能力、招式和长期培养价值生成第五队；
 - 等级不足时持续练级；等级因素排除后，连续失败会轮换阵容；
 - 推图、普通缺失图鉴、仅追踪雷公/炎帝/水君、普通与神兽协同四个入口互相独立；推图不追踪神兽，三个收集入口同一时间只运行一个；
+- 收集页可按当前地区、所有已解锁地区或自定义地区严格筛选目标，并显示实际地区；默认开启“为全收集自动推图”，仅在范围内没有立即可抓目标、但仍有目标受剧情锁定时推进一个解锁阶段，随后立即重新扫描，也可关闭；
 - 普通野外目标与徘徊神兽分区设置，神兽优先级可直接上移、下移；
 - 神兽候选由游戏 `roam.at` 实时列表驱动；失败后立即切章重置，目标消失后只确认一次捕获结果并重新规划，状态冲突时安全暂停；
 - 收集任务配队会提高当前等级权重，以应对 100 级徘徊神兽；推图仍优先长期培养价值；
@@ -23,6 +24,7 @@
 - 刷完目标子区域本轮的全部有效野生节点后切章重置；
 - 第五队锁定、人工接管和任意队伍复制；队伍应用通过游戏原有拖拽交互完成；
 - 城都、丰缘、神奥、合众等独立队伍地区只使用当前一侧可用成员；不足六只时按实际人数配队，队伍复制会先打开游戏队伍页完成原生预设初始化；
+- 跨地区捕获会先切换到目标章节，再读取当地存档并使用当地成员配队；普通、特殊捕获和徘徊神兽均遵循这一顺序；
 - 可按关都、城都、丰缘、神奥、合众多选范围，逐图鉴编号批量开启、关闭或取消当前可访问、可重复获取的非传说宝可梦“保留重复”；已符合目标状态的编号会跳过，游戏实际按进化家族共享设置；
 - 所有战斗增益果子按游戏原名显示效果，支持独立开关及最低保留量；包括使徘徊宝可梦停留30分钟的雾莲果；
 - 已启用的果子会按游戏时钟检测失效并自动续吃，即使当前没有运行推图或收集任务；
@@ -45,7 +47,7 @@
 3. 在 Tampermonkey 安装页面确认脚本名称与权限后保存。
 4. 刷新 Poke'Catch，右下角会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的分支缓存仍显示旧版本，可使用当前已推送稳定版本的固定安装地址：[安装 PokeCatch 助手 v0.4.5](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/d2b35bac5b92595c5a9dcf14fc3cf4e38b655533/dist/pokecatch-assistant.user.js)。固定地址绑定到已验证的提交，不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用已推送版本的稳定回退地址：[安装 PokeCatch 助手 v0.4.5](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/d2b35bac5b92595c5a9dcf14fc3cf4e38b655533/dist/pokecatch-assistant.user.js)。该固定地址绑定到真实的 v0.4.5 提交，不是 v0.5.0 固定地址，也不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
 
 如果浏览器没有自动打开 Tampermonkey 安装页，也可以打开 Tampermonkey 的“添加新脚本”，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 

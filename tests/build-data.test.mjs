@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.4.5", () => {
-  assert.equal(packageJson.version, "0.4.5");
-  assert.ok(source.includes("// @version      0.4.5"));
-  assert.ok(source.includes('const VERSION = "0.4.5"'));
-  assert.ok(viteConfig.includes('version: "0.4.5"'));
+test("userscript and development metadata share version 0.5.0", () => {
+  assert.equal(packageJson.version, "0.5.0");
+  assert.ok(source.includes("// @version      0.5.0"));
+  assert.ok(source.includes('const VERSION = "0.5.0"'));
+  assert.ok(viteConfig.includes('version: "0.5.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -234,7 +234,8 @@ test("weather-limited forms stay eligible and outrank ordinary automatic targets
   const settings = { regionScope: "all", customRegions: [], manualTargets: [] };
   const { chapter, currentRegion, habitatForRoute, availableChapters, potentialWildTarget,
     weatherFlexibility, planPriority, comparePriority } = sourceFunctions([
-    "chapter", "currentRegion", "habitatForRoute", "availableChapters", "potentialWildTarget",
+    "chapter", "currentRegion", "habitatForRoute", "unlockedRegions", "collectionScopeRegions",
+    "availableChapters", "chaptersInCollectionScope", "routeCanContainSpecies", "potentialWildTarget",
     "weatherFlexibility", "planPriority", "comparePriority",
   ], { DATA: data, settings });
   const save = { adv: { chapter: 15, unlocked: 20 } };
@@ -263,7 +264,7 @@ test("collection queue UI shows three automatic targets and waiting farms the st
   assert.ok(source.includes('collectTick(save, { trackRoamers: true, collectMissing: true })'));
   const settings = { regionScope: "all", customRegions: [], manualTargets: [] };
   const { chapter, currentRegion, availableChapters, moneyFarmPlan } = sourceFunctions(
-    ["chapter", "currentRegion", "availableChapters", "moneyFarmPlan"],
+    ["chapter", "currentRegion", "unlockedRegions", "collectionScopeRegions", "availableChapters", "moneyFarmPlan"],
     { DATA: data, settings },
   );
   const save = { adv: { chapter: 15, unlocked: 20 } };
@@ -313,6 +314,61 @@ test("control panel separates features into dedicated tabs", () => {
   }
   assert.ok(source.includes('role="tablist"'));
   assert.ok(source.includes('data-select-setting="regionScope"'));
+  assert.ok(source.includes('data-setting="autoPushForCollection"'));
+  assert.ok(source.includes('autoPushForCollection: true'));
+});
+
+test("collection scope and story-locked targets are resolved independently", () => {
+  const settings = { regionScope: "current", customRegions: [] };
+  const helpers = sourceFunctions([
+    "chapter",
+    "currentRegion",
+    "habitatForRoute",
+    "unlockedRegions",
+    "collectionScopeRegions",
+    "routeCanContainSpecies",
+    "chaptersInCollectionScope",
+    "storyLockedChapterForSpecies",
+  ], { DATA: data, settings });
+  const hoennStart = data.chapters.find((item) => item.region === "hoenn");
+  const save = { adv: { chapter: hoennStart.index, unlocked: hoennStart.index } };
+  assert.deepEqual(Array.from(helpers.collectionScopeRegions(save)), ["hoenn"]);
+
+  settings.regionScope = "all";
+  assert.ok(Array.from(helpers.collectionScopeRegions(save)).includes("johto"));
+  assert.ok(helpers.chaptersInCollectionScope(save).some((item) => (
+    item.region === "johto" && item.routes.some((route) => helpers.routeCanContainSpecies(route, 200))
+  )), "all unlocked regions should include Johto #200 Misdreavus");
+  settings.regionScope = "custom";
+  settings.customRegions = ["johto"];
+  assert.deepEqual(Array.from(helpers.collectionScopeRegions(save)), ["johto"]);
+  settings.customRegions = [];
+  assert.deepEqual(Array.from(helpers.collectionScopeRegions(save)), []);
+
+  settings.regionScope = "current";
+  const laterHoenn = data.chapters.find((item) => item.region === "hoenn" && item.index > hoennStart.index
+    && item.routes.some((route) => {
+      const habitat = helpers.habitatForRoute(route);
+      return habitat && Object.values(habitat).some((table) => Object.keys(table || {}).length);
+    }));
+  const lockedId = Number(Object.keys(helpers.habitatForRoute(laterHoenn.routes.find((route) => helpers.habitatForRoute(route)))?.base || {})[0]);
+  assert.equal(helpers.storyLockedChapterForSpecies(save, lockedId)?.region, "hoenn");
+});
+
+test("cross-region collection switches chapter before recommending the target-side team", () => {
+  const planning = source.slice(source.indexOf('await exclusive("规划缺失图鉴"'));
+  assert.ok(planning.indexOf("await switchChapter(next.chapter)") < planning.indexOf("recommendTeam(targetSave,"));
+  assert.ok(source.includes('const region = chapter(plan.chapter)?.region || currentRegion(save);'));
+  assert.ok(source.includes('${region ? `${t(region)} · ` : ""}'));
+});
+
+test("collection story advancement runs before passive condition waiting", () => {
+  const collectionStart = source.indexOf("async function collectTick");
+  const collectionEnd = source.indexOf("async function manageBerries", collectionStart);
+  const collectTick = source.slice(collectionStart, collectionEnd);
+  assert.ok(collectTick.indexOf("const unlock = collectionStoryUnlockPlan(save)") < collectTick.indexOf("const waiting = nextConditionalPlan(save)"));
+  assert.ok(collectTick.includes("collectionUnlockTick(save, unlock)"));
+  assert.ok(source.includes("下一次章节解锁后立即重新扫描"));
 });
 
 test("collection UI separates ordinary targets from roaming legendaries", () => {
@@ -432,9 +488,9 @@ test("collection team recommendations give current level a higher weight", () =>
   assert.ok(source.includes("const DEFAULT_LEVEL_WEIGHT = 0.22;"));
   assert.ok(source.includes("const COLLECTION_LEVEL_WEIGHT = 1.2;"));
   assert.ok(source.includes("Math.min(100, mon.level) * levelWeight"));
-  assert.ok(source.includes("recommendRoamingTeam(save, roamer.id)"));
-  assert.ok(source.includes("recommendTeam(save, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT })"));
-  assert.ok(source.includes('runtime.target?.startsWith("push:") ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT'));
+  assert.ok(source.includes("recommendRoamingTeam(readSave(), roamer.id)"));
+  assert.ok(source.includes("recommendTeam(targetSave, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT })"));
+  assert.ok(source.includes("const levelWeight = storyTarget ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT"));
 });
 
 test("roaming legendary teams strongly prioritize level 90 or above with fallback", () => {
@@ -446,7 +502,7 @@ test("roaming legendary teams strongly prioritize level 90 or above with fallbac
   assert.equal(roamingLevelPriorityScore(70), 0);
   assert.ok(source.includes("const ROAMING_PREFERRED_LEVEL = 90;"));
   assert.ok(source.includes("preferredLevel: ROAMING_PREFERRED_LEVEL"));
-  assert.ok(source.includes("recommendRoamingTeam(save, roamer.id)"));
+  assert.ok(source.includes("recommendRoamingTeam(readSave(), roamer.id)"));
   assert.ok(source.includes("recommendRoamingTeam(save, runtime.targetPlan.speciesId)"));
 });
 
