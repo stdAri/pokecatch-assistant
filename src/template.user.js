@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.3.3
+// @version      0.3.4
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.3.3";
+  const VERSION = "0.3.4";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -47,7 +47,7 @@
       selectCollection: "选择收集任务", dexCollection: "普通图鉴收集", roamOnly: "仅追踪神兽", combined: "普通 + 神兽协同",
       collectionNote: "三个入口互相独立：普通收集不会追踪神兽；仅追踪神兽不会刷普通目标；需要时才选择协同。",
       ordinaryTargets: "普通野外目标", region: "地区", currentRegion: "当前地区", allRegions: "所有已解锁地区", customRegions: "自定义地区",
-      manualPlaceholder: "手动优先图鉴编号，如 214,155", apply: "应用",
+      manualPlaceholder: "手动优先编号，如 214,201-H,493-A", apply: "应用",
       targetNote: "只会加入尚未捕获、且在所选范围内有野外地点的目标；按填写顺序优先。",
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
@@ -68,7 +68,7 @@
       selectCollection: "Choose a collection task", dexCollection: "Pokédex collection", roamOnly: "Roamers only", combined: "Pokédex + roamers",
       collectionNote: "These modes are independent: Pokédex collection ignores roamers, Roamers only ignores ordinary targets, and Combined coordinates both.",
       ordinaryTargets: "Ordinary wild targets", region: "Region", currentRegion: "Current region", allRegions: "All unlocked regions", customRegions: "Custom regions",
-      manualPlaceholder: "Priority Pokédex numbers, e.g. 214,155", apply: "Apply",
+      manualPlaceholder: "Priority numbers, e.g. 214,201-H,493-A", apply: "Apply",
       targetNote: "Only uncaught targets with a wild location in the selected scope are added, in the order entered.",
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
@@ -291,6 +291,10 @@
 
   function species(id) {
     return DATA.species[String(id)] || DATA.species[id] || null;
+  }
+
+  function speciesDisplayNumber(id) {
+    return species(id)?.d || String(id).padStart(3, "0");
   }
 
   function chapter(index) {
@@ -1323,9 +1327,18 @@
   }
 
   function resolveManualTarget(token) {
-    if (/^\d+$/.test(token)) return Number(token);
-    const entry = Object.entries(DATA.species).find(([, meta]) => meta.n === token);
+    const raw = String(token || "").trim().replace(/^#/, "").replace(/^NO\.?/i, "");
+    if (/^\d+$/.test(raw)) return Number(raw);
+    const normalized = raw.toUpperCase().replace(/[\s_-]+/g, "");
+    const entry = Object.entries(DATA.species).find(([, meta]) => (
+      String(meta.d || "").toUpperCase().replace(/[\s_-]+/g, "") === normalized
+      || String(meta.n || "").toUpperCase().replace(/[\s_-]+/g, "") === normalized
+    ));
     return entry ? Number(entry[0]) : null;
+  }
+
+  function manualTargetsInputValue() {
+    return settings.manualTargets.map(speciesDisplayNumber).join(",");
   }
 
   function manualTargetPreviewHtml(value) {
@@ -1337,7 +1350,7 @@
       const id = resolveManualTarget(token);
       const meta = species(id);
       if (!meta) return `<span class="pca-target invalid">${escapeHtml(token)}: ${t("unknownPokemon")}</span>`;
-      const labels = [`#${String(id).padStart(3, "0")} ${meta.n}`];
+      const labels = [`#${speciesDisplayNumber(id)} ${meta.n}`];
       let state = t("available");
       let className = "valid";
       if (ROAMING_LEGENDARIES.includes(id)) {
@@ -1409,8 +1422,8 @@
           <div class="pca-card"><h4>${t("ordinaryTargets")}</h4>
             <div class="pca-row"><span>${t("region")}</span><select class="pca-select pca-grow" data-select-setting="regionScope"><option value="current" ${settings.regionScope === "current" ? "selected" : ""}>${t("currentRegion")}</option><option value="all" ${settings.regionScope === "all" ? "selected" : ""}>${t("allRegions")}</option><option value="custom" ${settings.regionScope === "custom" ? "selected" : ""}>${t("customRegions")}</option></select></div>
             <div class="pca-row pca-note">${[["kanto",t("kanto")],["johto",t("johto")],["hoenn",t("hoenn")],["sinnoh",t("sinnoh")],["unova",t("unova")]].map(([key,label])=>`<label><input type="checkbox" data-region="${key}" ${settings.customRegions.includes(key)?"checked":""}>${label}</label>`).join(" ")}</div>
-            <div class="pca-row"><input class="pca-select pca-grow" id="pca-manual-targets" value="${settings.manualTargets.join(",")}" placeholder="${t("manualPlaceholder")}"><button class="pca-btn" data-act="targets">${t("apply")}</button></div>
-            <div id="pca-manual-target-preview" class="pca-targets pca-note">${manualTargetPreviewHtml(settings.manualTargets.join(","))}</div>
+            <div class="pca-row"><input class="pca-select pca-grow" id="pca-manual-targets" value="${manualTargetsInputValue()}" placeholder="${t("manualPlaceholder")}"><button class="pca-btn" data-act="targets">${t("apply")}</button></div>
+            <div id="pca-manual-target-preview" class="pca-targets pca-note">${manualTargetPreviewHtml(manualTargetsInputValue())}</div>
             <div class="pca-note">${t("targetNote")}</div>
           </div>
           <div class="pca-card"><h4>${t("roamers")}</h4>
@@ -1613,7 +1626,7 @@
       .filter((id) => !isCaught(save, id))
       .filter((id) => plansForSpecies(save, id).length);
     settings.manualTargets = [...new Set(ids)];
-    if (input) input.value = settings.manualTargets.join(",");
+    if (input) input.value = manualTargetsInputValue();
     saveSettings();
     runtime.target = null;
     runtime.targetPlan = null;

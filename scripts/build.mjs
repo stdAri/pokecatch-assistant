@@ -50,6 +50,7 @@ const encounters = evaluateLiteral(extractLiteral("a.ENCOUNTERS={", "{", "}"));
 const habitats = evaluateLiteral(extractLiteral("a.HABITATS={", "{", "}"));
 const weather = evaluateLiteral(extractLiteral("WEATHER:{", "{", "}"));
 const roamingWeather = evaluateLiteral(extractLiteral("MIN_LEVEL:100,WEATHER:{", "{", "}"));
+const forms = evaluateLiteral(extractLiteral("a.FORMS=function(){const h=[", "[", "]"));
 const compactWeather = {
   slotMs: weather.SLOT_MS,
   chance: weather.CHANCE,
@@ -60,7 +61,8 @@ const compactWeather = {
   types: weather.TYPES,
 };
 const chapterLiteral = extractLiteral("CHAPTERS:[", "[", "]");
-const unownIds = Array.from({ length: 28 }, (_, index) => 20100 + index);
+const unownLetters = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "!", "?"];
+const unownIds = unownLetters.map((_, index) => index === 0 ? 201 : 20100 + index);
 const chapters = evaluateLiteral(chapterLiteral, { a: { UNOWN: { ids: unownIds } } });
 
 const context = { window: {} };
@@ -131,6 +133,35 @@ const compactSpecies = Object.fromEntries(
     },
   ]),
 );
+
+const baseUnown = compactSpecies[201];
+baseUnown.n = `${baseUnown.n} A`;
+baseUnown.d = "201-A";
+for (let index = 1; index < unownLetters.length; index += 1) {
+  const id = unownIds[index];
+  compactSpecies[id] = { ...baseUnown, n: `${pokemonNames[201]} ${unownLetters[index]}`, d: `201-${unownLetters[index]}` };
+}
+
+const formIndexes = new Map();
+for (const form of forms) {
+  const base = compactSpecies[form.base];
+  if (!base) continue;
+  const index = formIndexes.get(form.base) || 0;
+  formIndexes.set(form.base, index + 1);
+  const suffix = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"[index];
+  const stats = form.stats
+    ? [form.stats.hp, form.stats.atk, form.stats.def, form.stats.spa, form.stats.spd, form.stats.spe]
+    : base.s;
+  const extraMoves = [form.move, ...(form.moves || [])].filter((key) => key && moves[key]);
+  compactSpecies[form.id] = {
+    ...base,
+    n: `${pokemonNames[form.base]} (${translate(form.form)})`,
+    t: form.types || base.t,
+    s: stats,
+    l: [...base.l, ...extraMoves.map((key) => [50, key])],
+    d: `${form.base}-${suffix}`,
+  };
+}
 
 const compactMoves = Object.fromEntries(
   Object.entries(moves).map(([key, move]) => [key, [move.type, move.power || 0, move.acc || 100, move.cat || "status"]]),

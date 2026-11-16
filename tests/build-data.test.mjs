@@ -42,16 +42,16 @@ function sourceFunctions(names, context = {}) {
 test("generated data matches the inspected game build", () => {
   assert.equal(data.appBuild, "c0081498f2");
   assert.equal(data.langBuild, "01332b3d04");
-  assert.equal(Object.keys(data.species).length, 649);
+  assert.equal(Object.keys(data.species).length, 721);
   assert.equal(data.species[4].n, "小火龙");
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.3.3", () => {
-  assert.equal(packageJson.version, "0.3.3");
-  assert.ok(source.includes("// @version      0.3.3"));
-  assert.ok(source.includes('const VERSION = "0.3.3"'));
-  assert.ok(viteConfig.includes('version: "0.3.3"'));
+test("userscript and development metadata share version 0.3.4", () => {
+  assert.equal(packageJson.version, "0.3.4");
+  assert.ok(source.includes("// @version      0.3.4"));
+  assert.ok(source.includes('const VERSION = "0.3.4"'));
+  assert.ok(viteConfig.includes('version: "0.3.4"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -70,6 +70,22 @@ test("route and encounter data can locate Charmander on Route 3", () => {
     .find(({ route }) => route.name === "3号道路");
   assert.ok(route3, "missing Route 3");
   assert.ok(route3.route.areas.includes("kanto-route-3-area"));
+});
+
+test("alternate forms use the game's visible Pokedex numbers", () => {
+  assert.equal(Object.keys(data.species).length, 721);
+  assert.equal(data.species[201].d, "201-A");
+  assert.equal(data.species[20107].d, "201-H");
+  assert.equal(data.species[20107].n, "未知图腾 H");
+  assert.equal(data.species[49301].d, "493-A");
+  assert.deepEqual(data.species[49301].t, ["fire"]);
+  assert.equal(data.species[49316].d, "493-P");
+  assert.equal(data.species[48701].d, "487-A");
+  assert.equal(data.species[49201].d, "492-A");
+  assert.equal(data.species[20100], undefined);
+  const ruins = data.chapters.flatMap((item) => item.routes).find((route) => route.sourceName === "Ruines d'Alpha");
+  assert.ok(ruins.species.includes(201));
+  assert.equal(ruins.species.includes(20100), false);
 });
 
 test("collection planning follows the game's daytime boundaries and replans expired targets", () => {
@@ -339,6 +355,15 @@ test("manual target input previews Pokedex numbers and names", () => {
   assert.ok(source.includes("function manualTargetPreviewHtml"));
   assert.ok(source.includes('event.target.id === "pca-manual-targets"'));
   assert.ok(source.includes('String(id).padStart(3, "0")'));
+});
+
+test("manual targets resolve visible alternate-form numbers", () => {
+  const { resolveManualTarget } = sourceFunctions(["resolveManualTarget"], { DATA: data });
+  assert.equal(resolveManualTarget("201-H"), 20107);
+  assert.equal(resolveManualTarget("201H"), 20107);
+  assert.equal(resolveManualTarget("No.493-A"), 49301);
+  assert.equal(resolveManualTarget("493A"), 49301);
+  assert.equal(resolveManualTarget("未知图腾H"), 20107);
 });
 
 test("team automation uses the game's drag interaction instead of opening details", () => {
