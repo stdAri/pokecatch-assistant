@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.4.4
+// @version      0.4.5
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.4.4";
+  const VERSION = "0.4.5";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -185,7 +185,8 @@
     const raw = localStorage.getItem(SAVE_KEY);
     if (!raw) throw new Error("找不到游戏存档");
     const save = JSON.parse(raw);
-    if (!save?.adv || !Array.isArray(save.mons) || !save.dex || !save.teamSets?.list) {
+    const validTeamSets = save?.teamSets == null || Array.isArray(save.teamSets.list);
+    if (!save?.adv || !Array.isArray(save.mons) || !save.dex || !Array.isArray(save.team) || !validTeamSets) {
       throw new Error("游戏存档结构不兼容");
     }
     return save;
@@ -393,8 +394,8 @@
     preferredLevel = null,
   } = {}) {
     const enemies = enemyProfiles(enemyIds);
-    const currentFive = new Set(save.teamSets?.list?.[4] || []);
-    const candidates = save.mons.filter((mon) => mon?.uid && mon.level > 0);
+    const currentFive = new Set(save.teamSets?.list?.[4] || save.team || []);
+    const candidates = availableTeamCandidates(save);
     const selected = [];
     const details = [];
     while (selected.length < 6 && selected.length < candidates.length) {
@@ -660,6 +661,20 @@
   function pokemonHomeRegion(mon) {
     if (mon?.reg === "kanto2") return "johto";
     return ["kanto", "johto", "hoenn", "sinnoh", "unova"].includes(mon?.reg) ? mon.reg : "kanto";
+  }
+
+  function isMonAvailableInCurrentRegion(save, mon) {
+    if (!save?.link) return true;
+    const side = pokemonHomeRegion(mon) === save.link.to ? "to" : "from";
+    return side === save.link.side;
+  }
+
+  function availableTeamCandidates(save) {
+    return (save?.mons || []).filter((mon) => mon?.uid && mon.level > 0 && isMonAvailableInCurrentRegion(save, mon));
+  }
+
+  function requiredTeamSize(save) {
+    return Math.min(6, availableTeamCandidates(save).length);
   }
 
   function duplicateKeepCandidates(save, regions = settings.duplicateKeepRegions) {
@@ -1273,7 +1288,8 @@
         ? { signature, count: priorSeries.count + delta }
         : { signature, count: delta };
       runtime.deathSeries.set(frontier, series);
-      if (teamMons.length === 6 && ourMin >= enemyMax && series.count >= 3) {
+      const fullTeamSize = requiredTeamSize(save);
+      if (fullTeamSize > 0 && teamMons.length === fullTeamSize && ourMin >= enemyMax && series.count >= 3) {
         runtime.deathSeries.set(frontier, { signature, count: 0 });
         const failed = runtime.failureTeams.get(frontier) || new Set();
         if (runtime.teamPlan?.signature) failed.add(runtime.teamPlan.signature);
@@ -1630,6 +1646,7 @@
     const source = Number(document.querySelector("#pca-copy-from")?.value);
     const destination = Number(document.querySelector("#pca-copy-to")?.value);
     if (source === destination) return alert("来源和目标不能相同");
+    await openScreen("team");
     const save = readSave();
     const uids = save.teamSets?.list?.[source] || [];
     if (!uids.length) return alert(`队伍${source + 1}为空`);

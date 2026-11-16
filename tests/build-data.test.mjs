@@ -47,14 +47,64 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.4.4", () => {
-  assert.equal(packageJson.version, "0.4.4");
-  assert.ok(source.includes("// @version      0.4.4"));
-  assert.ok(source.includes('const VERSION = "0.4.4"'));
-  assert.ok(viteConfig.includes('version: "0.4.4"'));
+test("userscript and development metadata share version 0.4.5", () => {
+  assert.equal(packageJson.version, "0.4.5");
+  assert.ok(source.includes("// @version      0.4.5"));
+  assert.ok(source.includes('const VERSION = "0.4.5"'));
+  assert.ok(viteConfig.includes('version: "0.4.5"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
+});
+
+test("new regions accept missing presets and only recommend locally available Pokemon", () => {
+  const readSave = sourceFunctionText("readSave");
+  const makeReader = (value) => {
+    const sandbox = {
+      SAVE_KEY: "gachamon-save-v1",
+      localStorage: { getItem: () => JSON.stringify(value) },
+      result: null,
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(`${readSave}\nresult = readSave;`, sandbox);
+    return sandbox.result;
+  };
+  const separatedSave = {
+    adv: { chapter: 30, unlocked: 30 },
+    mons: [],
+    dex: {},
+    team: [],
+    link: { from: "johto", to: "hoenn", side: "to", stash: { teamSets: { list: [] } } },
+  };
+  assert.doesNotThrow(() => makeReader(separatedSave)());
+  assert.throws(
+    () => makeReader({ ...separatedSave, teamSets: {} })(),
+    /游戏存档结构不兼容/,
+  );
+
+  const { pokemonHomeRegion, isMonAvailableInCurrentRegion, availableTeamCandidates, requiredTeamSize } = sourceFunctions([
+    "pokemonHomeRegion",
+    "isMonAvailableInCurrentRegion",
+    "availableTeamCandidates",
+    "requiredTeamSize",
+  ]);
+  const mons = [
+    { uid: "old-1", id: 1, level: 90, reg: "kanto" },
+    { uid: "old-2", id: 152, level: 80, reg: "kanto2" },
+    ...Array.from({ length: 4 }, (_, index) => ({ uid: `new-${index + 1}`, id: 252 + index, level: 5 + index, reg: "hoenn" })),
+  ];
+  const save = { ...separatedSave, mons };
+  assert.deepEqual(
+    Array.from(availableTeamCandidates(save), (mon) => mon.uid),
+    ["new-1", "new-2", "new-3", "new-4"],
+  );
+  assert.equal(isMonAvailableInCurrentRegion(save, mons[0]), false);
+  assert.equal(isMonAvailableInCurrentRegion(save, mons[2]), true);
+  assert.equal(pokemonHomeRegion(mons[1]), "johto");
+  assert.equal(requiredTeamSize(save), 4);
+  assert.equal(requiredTeamSize({ ...save, link: { ...save.link, side: "from" } }), 2);
+  assert.ok(source.includes("const candidates = availableTeamCandidates(save);"));
+  assert.ok(source.includes("const fullTeamSize = requiredTeamSize(save);"));
 });
 
 test("Johto finale contains Red's actual six Pokemon", () => {
