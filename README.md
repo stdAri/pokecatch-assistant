@@ -43,7 +43,7 @@
 3. 在 Tampermonkey 安装页面确认脚本名称与权限后保存。
 4. 刷新 Poke'Catch，右下角会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的分支缓存仍显示旧版本，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.3.5](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/116d2d98e336663e1c55758a0e6bb365a0e76c70/dist/pokecatch-assistant.user.js)。固定地址绑定到已验证的提交，不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
+如果 GitHub Raw 的分支缓存仍显示旧版本，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.4.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/42800fe9f47afe8972db53758b11d9ef7a340ddb/dist/pokecatch-assistant.user.js)。固定地址绑定到已验证的提交，不会受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
 
 如果浏览器没有自动打开 Tampermonkey 安装页，也可以打开 Tampermonkey 的“添加新脚本”，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
