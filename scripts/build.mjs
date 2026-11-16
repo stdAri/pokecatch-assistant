@@ -73,6 +73,7 @@ const compactChapters = chapters.map((chapter, index) => {
     name: translate(chapter.name),
     sourceName: chapter.name,
     region: inheritedRegion,
+    day: !!chapter.day,
     ace: chapter.ace || boss?.team?.reduce((max, [, level]) => Math.max(max, level), 0) || 1,
     routes: steps
       .map((step, stepIndex) => ({

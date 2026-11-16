@@ -33,11 +33,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.2.1", () => {
-  assert.equal(packageJson.version, "0.2.1");
-  assert.ok(source.includes("// @version      0.2.1"));
-  assert.ok(source.includes('const VERSION = "0.2.1"'));
-  assert.ok(viteConfig.includes('version: "0.2.1"'));
+test("userscript and development metadata share version 0.2.2", () => {
+  assert.equal(packageJson.version, "0.2.2");
+  assert.ok(source.includes("// @version      0.2.2"));
+  assert.ok(source.includes('const VERSION = "0.2.2"'));
+  assert.ok(viteConfig.includes('version: "0.2.2"'));
 });
 
 test("Johto finale contains Red's actual six Pokemon", () => {
@@ -53,6 +53,23 @@ test("route and encounter data can locate Charmander on Route 3", () => {
     .find(({ route }) => route.name === "3号道路");
   assert.ok(route3, "missing Route 3");
   assert.ok(route3.route.areas.includes("kanto-route-3-area"));
+});
+
+test("collection planning follows the game's daytime boundaries and replans expired targets", () => {
+  const daytimePhaseAt = sourceFunction("daytimePhaseAt");
+  const localTime = (hour) => new Date(2026, 10, 16, hour, 0, 0).getTime();
+  assert.equal(daytimePhaseAt(localTime(7)), "night");
+  assert.equal(daytimePhaseAt(localTime(8)), "morning");
+  assert.equal(daytimePhaseAt(localTime(10)), "day");
+  assert.equal(daytimePhaseAt(localTime(19)), "day");
+  assert.equal(daytimePhaseAt(localTime(20)), "night");
+  assert.equal(daytimePhaseAt(localTime(23), true), "day");
+
+  const habitatWeights = sourceFunction("habitatWeights");
+  const route29 = data.habitats["Route 29|gsc:johto-route-29-area"];
+  assert.equal(habitatWeights(route29, "day")[155], undefined);
+  assert.equal(habitatWeights(route29, "night")[155], 4);
+  assert.ok(source.includes("当前昼夜条件已变化，重新规划目标"));
 });
 
 test("userscript never writes the game save key", () => {

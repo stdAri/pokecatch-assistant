@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.2.1
+// @version      0.2.2
 // @description  推图、缺失图鉴、徘徊神兽、第五队和果子自动化。只读取游戏状态并通过正常界面点击操作。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -19,7 +19,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.2.1";
+  const VERSION = "0.2.2";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -564,24 +564,39 @@
     return match?.[1] || null;
   }
 
-  function routeWeights(route) {
+  function daytimePhaseAt(timestamp, forceDay = false) {
+    if (forceDay) return "day";
+    const hour = new Date(timestamp).getHours();
+    if (hour >= 20 || hour < 8) return "night";
+    if (hour >= 10) return "day";
+    return "morning";
+  }
+
+  function currentDaytimePhase(save, chapterIndex = save.adv.chapter) {
+    const forcedDay = Boolean(chapter(chapterIndex)?.day && !(save.adv.unlocked > chapterIndex));
+    return daytimePhaseAt(Number(save.lastTick) || Date.now(), forcedDay);
+  }
+
+  function habitatWeights(habitat, phase) {
     const weights = {};
     const add = (id, value) => { weights[id] = Math.max(weights[id] || 0, Number(value) || 0); };
-    for (const id of route.species || []) add(id, 1);
-    const habitat = habitatForRoute(route);
-    const hour = new Date().getHours();
-    const timeKey = hour >= 6 && hour < 18 ? "day" : "night";
-    const activeTables = habitat ? [habitat.base, habitat[timeKey]] : [];
-    for (const table of activeTables) {
+    for (const table of [habitat?.base, habitat?.[phase]]) {
       if (!table || typeof table !== "object") continue;
       for (const [id, weight] of Object.entries(table)) if (weight > 0) add(id, weight);
     }
+    return weights;
+  }
+
+  function routeWeights(route, phase) {
+    const habitat = habitatForRoute(route);
+    const weights = habitatWeights(habitat, phase);
     if (!habitat) {
+      for (const id of route.species || []) weights[id] = Math.max(weights[id] || 0, 1);
       for (const area of route.areas || []) {
         for (const entry of DATA.encounters[area] || []) {
           const [id, , , weight, method] = entry;
           if (method === "gift") continue;
-          add(id, weight || 1);
+          weights[id] = Math.max(weights[id] || 0, Number(weight) || 1);
         }
       }
     }
@@ -602,7 +617,8 @@
     const plans = [];
     for (const item of availableChapters(save)) {
       for (const route of item.routes) {
-        const weight = routeWeights(route)[speciesId] || 0;
+        const phase = currentDaytimePhase(save, item.index);
+        const weight = routeWeights(route, phase)[speciesId] || 0;
         if (weight <= 0) continue;
         const prefixCost = route.stepIndex + 1;
         const score = weight * Math.max(1, route.wild) / prefixCost;
@@ -616,6 +632,7 @@
           prefixCost,
           weight,
           score,
+          phase,
         });
       }
     }
@@ -879,6 +896,19 @@
         log("当前没有徘徊神兽，保持等待；不会执行普通图鉴收集");
       }
       return;
+    }
+
+    if (runtime.targetPlan && !runtime.targetPlan.roaming && !isCaught(save, runtime.targetPlan.speciesId)) {
+      const stillAvailable = plansForSpecies(save, runtime.targetPlan.speciesId).some((plan) => (
+        plan.chapter === runtime.targetPlan.chapter && plan.zone === runtime.targetPlan.zone
+      ));
+      if (!stillAvailable) {
+        log(`${species(runtime.targetPlan.speciesId)?.n || runtime.targetPlan.speciesId}当前昼夜条件已变化，重新规划目标`);
+        runtime.target = null;
+        runtime.targetPlan = null;
+        runtime.teamPlan = null;
+        runtime.chapterReset = null;
+      }
     }
 
     if (!runtime.targetPlan || isCaught(save, runtime.targetPlan.speciesId)) {
