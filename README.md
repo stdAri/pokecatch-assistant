@@ -3,7 +3,7 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.4.2-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.3-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
@@ -19,6 +19,7 @@
 - 雷公、炎帝、水君的自动队伍会强优先选择 `Lv.90+` 宝可梦；不足六只时才按神兽专用评分选取低等级候补；
 - 手动优先图鉴编号会即时显示对应宝可梦名称和可用状态；
 - 手动目标支持游戏显示的特殊形态编号，例如未知图腾 `201-H` 和阿尔宙斯 `493-A`；
+- 可识别并在条件满足后自动进入传说宝可梦特殊捕获地点，例如洛奇亚的漩涡列岛、凤王的铃铛塔；条件未满足时显示具体地点和缺少的前置条件；
 - 刷完目标子区域本轮的全部有效野生节点后切章重置；
 - 第五队锁定、人工接管和任意队伍复制；队伍应用通过游戏原有拖拽交互完成；
 - 可按关都、城都、丰缘、神奥、合众多选范围，逐图鉴编号批量开启、关闭或取消当前可访问、可重复获取的非传说宝可梦“保留重复”；已符合目标状态的编号会跳过，游戏实际按进化家族共享设置；

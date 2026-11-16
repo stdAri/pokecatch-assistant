@@ -47,11 +47,11 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.4.2", () => {
-  assert.equal(packageJson.version, "0.4.2");
-  assert.ok(source.includes("// @version      0.4.2"));
-  assert.ok(source.includes('const VERSION = "0.4.2"'));
-  assert.ok(viteConfig.includes('version: "0.4.2"'));
+test("userscript and development metadata share version 0.4.3", () => {
+  assert.equal(packageJson.version, "0.4.3");
+  assert.ok(source.includes("// @version      0.4.3"));
+  assert.ok(source.includes('const VERSION = "0.4.3"'));
+  assert.ok(viteConfig.includes('version: "0.4.3"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -78,6 +78,32 @@ test("routes with explicit habitat keys use their special encounter tables", () 
   const { habitatForRoute, habitatWeights } = sourceFunctions(["habitatForRoute", "habitatWeights"], { DATA: data });
   const habitat = habitatForRoute(summit);
   assert.equal(habitatWeights(habitat, "night", null)[200], 12);
+});
+
+test("special legendary zones include locations and unlock conditions", () => {
+  const lugia = data.specialZones.find((item) => item.id === 249);
+  const hoOh = data.specialZones.find((item) => item.id === 250);
+  assert.equal(lugia.zone, "漩涡列岛");
+  assert.deepEqual(lugia.condition.ids, [144, 145, 146]);
+  assert.equal(hoOh.zone, "铃铛塔");
+  assert.equal(hoOh.badge, "Brume");
+  assert.deepEqual(hoOh.condition.ids, [243, 244, 245]);
+  assert.ok(source.includes('document.querySelector(`.mp-go[data-zone="${plan.speciesId}"]`)'));
+  assert.ok(source.includes('Number(readSave().adv.zone?.id) === Number(plan.speciesId)'));
+  const { species, isCaught, specialConditionStatus, regionInCollectionScope, specialTargetStatus } = sourceFunctions(
+    ["species", "isCaught", "specialConditionStatus", "regionInCollectionScope", "specialTargetStatus"],
+    { DATA: data, settings: { regionScope: "all", customRegions: [] }, language: () => "zh", t: (key) => key },
+  );
+  const locked = specialConditionStatus({ dex: { 144: { caught: 1 }, 145: { caught: 1 } } }, lugia.condition, lugia);
+  assert.equal(locked.met, false);
+  assert.ok(locked.reason.includes("火焰鸟"));
+  assert.equal(specialConditionStatus({ dex: { 144: { caught: 1 }, 145: { caught: 1 }, 146: { caught: 1 } } }, lugia.condition, lugia).met, true);
+  const save = {
+    adv: { unlocked: data.chapters.length - 1, badges: ["Brume"] },
+    dex: Object.fromEntries([144, 145, 146, 243, 244, 245].map((id) => [id, { caught: 1 }])),
+  };
+  assert.equal(specialTargetStatus(save, 249).open, true);
+  assert.equal(specialTargetStatus(save, 250).open, true);
 });
 
 test("alternate forms use the game's visible Pokedex numbers", () => {

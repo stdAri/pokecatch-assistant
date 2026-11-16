@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.4.2
+// @version      0.4.3
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.4.2";
+  const VERSION = "0.4.3";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const DEFAULT_LEVEL_WEIGHT = 0.22;
   const COLLECTION_LEVEL_WEIGHT = 1.2;
@@ -48,7 +48,7 @@
       collectionNote: "三个入口互相独立：普通收集不会追踪神兽；仅追踪神兽不会刷普通目标；需要时才选择协同。",
       ordinaryTargets: "普通野外目标", region: "地区", currentRegion: "当前地区", allRegions: "所有已解锁地区", customRegions: "自定义地区",
       manualPlaceholder: "手动优先编号，如 214,201-H,493-A", apply: "应用",
-      targetNote: "只会加入尚未捕获、且在所选范围内有野外地点的目标；按填写顺序优先。",
+      targetNote: "只会加入尚未捕获、且在所选范围内有野外地点或已解锁特殊地点的目标；按填写顺序优先。",
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
       duplicateKeepTitle: "重复宝可梦保留", enableDuplicateKeeps: "全部开启", disableDuplicateKeeps: "全部关闭", cancelDuplicateKeeps: "取消批量操作",
@@ -60,6 +60,7 @@
       statusTitle: "当前任务状态", task: "任务", target: "目标", place: "位置", attempts: "尝试", buffs: "增益", fifthTeam: "第五队", idle: "空闲", notGenerated: "未生成",
       notAppeared: "未出现", caught: "已捕获", appearing: "出现中", minutes: "分", moveUp: "上移", moveDown: "下移",
       targetPrompt: "输入编号或名称后，这里会显示对应的宝可梦。", unknownPokemon: "无对应宝可梦", available: "可加入",
+      specialLocation: "特殊地点", specialRegionLocked: "地区尚未解锁", specialOutsideScope: "不在所选地区范围", specialConditionLocked: "特殊条件尚未满足",
       managedRoamer: "徘徊神兽，由下方优先级管理", caughtSkip: "已捕获，不会加入", noWildPlace: "当前范围没有可用野外地点", legendaryWild: "神兽/幻兽 · 可作为野外目标",
       kanto: "关都", johto: "城都", hoenn: "丰缘", sinnoh: "神奥", unova: "合众",
       waitingRoamers: "等待雷公、炎帝或水君出现", paused: "暂停", working: "操作中", cumulative: "累计", suggestion: "建议", game: "游戏", data: "数据",
@@ -73,7 +74,7 @@
       collectionNote: "These modes are independent: Pokédex collection ignores roamers, Roamers only ignores ordinary targets, and Combined coordinates both.",
       ordinaryTargets: "Ordinary wild targets", region: "Region", currentRegion: "Current region", allRegions: "All unlocked regions", customRegions: "Custom regions",
       manualPlaceholder: "Priority numbers, e.g. 214,201-H,493-A", apply: "Apply",
-      targetNote: "Only uncaught targets with a wild location in the selected scope are added, in the order entered.",
+      targetNote: "Only uncaught targets with a wild location or unlocked special location in the selected scope are added, in the order entered.",
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
       duplicateKeepTitle: "Keep duplicates", enableDuplicateKeeps: "Enable all", disableDuplicateKeeps: "Disable all", cancelDuplicateKeeps: "Cancel bulk action",
@@ -85,6 +86,7 @@
       statusTitle: "Current task", task: "Mode", target: "Target", place: "Location", attempts: "Attempts", buffs: "Buffs", fifthTeam: "Team 5", idle: "Idle", notGenerated: "Not generated",
       notAppeared: "Not active", caught: "Caught", appearing: "Active", minutes: "min", moveUp: "Move up", moveDown: "Move down",
       targetPrompt: "Enter a Pokédex number or name to preview the target.", unknownPokemon: "No matching Pokémon", available: "Available",
+      specialLocation: "Special location", specialRegionLocked: "Region not unlocked", specialOutsideScope: "Outside selected regions", specialConditionLocked: "Special condition not met",
       managedRoamer: "Roaming legendary; managed by the priority list below", caughtSkip: "Already caught; will not be added", noWildPlace: "No available wild location in the current scope", legendaryWild: "Legendary/Mythical · available as a wild target",
       kanto: "Kanto", johto: "Johto", hoenn: "Hoenn", sinnoh: "Sinnoh", unova: "Unova",
       waitingRoamers: "Waiting for Raikou, Entei or Suicune", paused: "Paused", working: "Working", cumulative: "Cumulative", suggestion: "Suggestion", game: "Game", data: "Data",
@@ -455,6 +457,22 @@
     if (settle) await jitter(500, 900);
     runtime.expectedChapter = null;
     log(`已进入：${chapter(chapterIndex)?.name || `章节${chapterIndex}`}`);
+  }
+
+  async function enterSpecialZone(plan) {
+    await openScreen("adventure");
+    await pacedClick(document.querySelector("#side-chapter"), language() === "en" ? "open map" : "打开地图");
+    const button = await waitFor(
+      () => document.querySelector(`.mp-go[data-zone="${plan.speciesId}"]`),
+      { label: `${plan.zone}入口` },
+    );
+    if (button.disabled) throw new Error(`${plan.zone}尚未解锁`);
+    await pacedClick(button, `${plan.zone}入口`);
+    await waitFor(
+      () => Number(readSave().adv.zone?.id) === Number(plan.speciesId),
+      { timeout: 10_000, label: `进入${plan.zone}` },
+    );
+    log(`已进入特殊地点：${plan.zone}`);
   }
 
   async function continueChapterReset() {
@@ -894,18 +912,128 @@
     return plans.sort((a, b) => b.score - a.score || a.prefixCost - b.prefixCost);
   }
 
+  function regionInCollectionScope(save, region) {
+    if (settings.regionScope === "current") return currentRegion(save) === region;
+    if (settings.regionScope === "custom") return settings.customRegions.includes(region);
+    return true;
+  }
+
+  function specialConditionStatus(save, condition, special) {
+    if (!condition) return { met: true, reason: "" };
+    if (condition.kind === "owns") {
+      const missing = (condition.ids || []).filter((id) => !isCaught(save, id));
+      return missing.length
+        ? { met: false, reason: `${language() === "en" ? "Needs" : "需要拥有"} ${missing.map((id) => species(id)?.n || id).join("、")}` }
+        : { met: true, reason: "" };
+    }
+    if (condition.kind === "all") {
+      const failed = (condition.list || [])
+        .map((item) => specialConditionStatus(save, item, special))
+        .find((item) => !item.met);
+      return failed || { met: true, reason: "" };
+    }
+    if (condition.kind === "item") {
+      const met = Number(save.items?.[condition.item] || 0) > 0;
+      return { met, reason: met ? "" : (condition.text || `${language() === "en" ? "Needs item" : "需要道具"} ${condition.item}`) };
+    }
+    if (condition.kind === "door") {
+      const met = Boolean(save.zoneDoors?.[condition.key]);
+      return { met, reason: met ? "" : (condition.text || t("specialConditionLocked")) };
+    }
+    if (condition.kind === "league") {
+      const badge = DATA.chapters.find((item) => item.region === condition.region && item.boss?.champion)?.boss?.badge;
+      const met = Boolean(badge && save.adv.badges?.includes(badge));
+      return { met, reason: met ? "" : (condition.text || t("specialConditionLocked")) };
+    }
+    if (condition.kind === "dex" && special.dex) {
+      const missing = Object.keys(DATA.species).map(Number).filter((id) => (
+        id >= special.dex[0] && id <= special.dex[1] && !species(id)?.m && !isCaught(save, id)
+      ));
+      return { met: missing.length === 0, reason: missing.length ? (condition.text || t("specialConditionLocked")) : "" };
+    }
+    if (condition.kind === "type" && special.dex) {
+      const missing = Object.keys(DATA.species).map(Number).filter((id) => (
+        id >= special.dex[0] && id <= special.dex[1] && species(id)?.t?.includes(condition.type) && !isCaught(save, id)
+      ));
+      return { met: missing.length === 0, reason: missing.length ? (condition.text || t("specialConditionLocked")) : "" };
+    }
+    if (condition.kind === "types" && condition.dex) {
+      const missing = Object.keys(DATA.species).map(Number).filter((id) => (
+        id >= condition.dex[0] && id <= condition.dex[1]
+        && id !== special.id && !species(id)?.m
+        && !(species(id)?.g && id >= special.dex[0])
+        && species(id)?.t?.some((type) => condition.types.includes(type))
+        && !isCaught(save, id)
+      ));
+      return { met: missing.length === 0, reason: missing.length ? (condition.text || t("specialConditionLocked")) : "" };
+    }
+    if (condition.kind === "count" && special.dex) {
+      const caught = Object.keys(DATA.species).map(Number).filter((id) => (
+        id >= special.dex[0] && id <= special.dex[1] && !species(id)?.g && !species(id)?.m && isCaught(save, id)
+      )).length;
+      return { met: caught >= condition.need, reason: caught >= condition.need ? "" : (condition.text || `${caught}/${condition.need}`) };
+    }
+    if (condition.kind === "tally") {
+      const value = Number(save.stats?.byReg?.[special.region]?.[condition.field] || 0);
+      return { met: value >= condition.need, reason: value >= condition.need ? "" : (condition.text || `${value}/${condition.need}`) };
+    }
+    if (condition.kind === "elite") {
+      const tier = Number(save.elite?.[condition.zone]?.t || 0);
+      return { met: tier >= condition.tier, reason: tier >= condition.tier ? "" : (condition.text || t("specialConditionLocked")) };
+    }
+    return { met: false, reason: condition.text || t("specialConditionLocked") };
+  }
+
+  function specialTargetStatus(save, speciesId) {
+    const special = (DATA.specialZones || []).find((item) => item.id === Number(speciesId));
+    if (!special) return null;
+    const regionChapters = DATA.chapters.filter((item) => item.region === special.region && item.index <= save.adv.unlocked);
+    if (!regionChapters.length) return { special, open: false, reason: t("specialRegionLocked"), chapter: null };
+    if (!regionInCollectionScope(save, special.region)) return { special, open: false, reason: t("specialOutsideScope"), chapter: null };
+    if (special.badge && !save.adv.badges?.includes(special.badge)) {
+      return { special, open: false, reason: language() === "en"
+        ? `Needs badge: ${special.badgeName || special.badge}`
+        : `需要徽章：${special.badgeName || special.badge}`, chapter: null };
+    }
+    const condition = specialConditionStatus(save, special.condition, special);
+    if (!condition.met) return { special, open: false, reason: condition.reason, chapter: null };
+    const areaChapter = regionChapters.find((item) => item.routes.some((route) => route.areas.some((area) => special.areas.includes(area))));
+    const chapterPlan = areaChapter || regionChapters.at(-1);
+    return { special, open: true, reason: "", chapter: chapterPlan?.index ?? null };
+  }
+
+  function specialPlansForSpecies(save, speciesId) {
+    const status = specialTargetStatus(save, speciesId);
+    if (!status?.open || status.chapter == null || isCaught(save, speciesId)) return [];
+    return [{
+      speciesId: Number(speciesId),
+      chapter: status.chapter,
+      chapterName: chapter(status.chapter)?.name,
+      zone: status.special.zone,
+      sourceZone: status.special.sourceZone,
+      special: true,
+      score: 0.5,
+      prefixCost: 1,
+      level: status.special.level,
+    }];
+  }
+
+  function collectionPlansForSpecies(save, speciesId, timestamp = Number(save.lastTick) || Date.now()) {
+    return [...plansForSpecies(save, speciesId, timestamp), ...specialPlansForSpecies(save, speciesId)];
+  }
+
   function chooseMissingPlan(save) {
     if (settings.manualTargets.length) {
       for (const id of settings.manualTargets) {
         if (isCaught(save, id)) continue;
-        const option = plansForSpecies(save, id)[0];
+        const option = collectionPlansForSpecies(save, id)[0];
         if (option) return option;
       }
     }
     const plans = [];
     for (const [id] of Object.entries(DATA.species)) {
       if (isCaught(save, id)) continue;
-      const options = plansForSpecies(save, Number(id));
+      const options = collectionPlansForSpecies(save, Number(id));
       if (options.length) plans.push(options[0]);
     }
     return plans.sort((a, b) => b.score - a.score || a.prefixCost - b.prefixCost)[0] || null;
@@ -1188,7 +1316,7 @@
     }
 
     if (runtime.targetPlan && !runtime.targetPlan.roaming && !isCaught(save, runtime.targetPlan.speciesId)) {
-      const stillAvailable = plansForSpecies(save, runtime.targetPlan.speciesId).some((plan) => (
+      const stillAvailable = collectionPlansForSpecies(save, runtime.targetPlan.speciesId).some((plan) => (
         plan.chapter === runtime.targetPlan.chapter && plan.zone === runtime.targetPlan.zone
       ));
       if (!stillAvailable) {
@@ -1225,7 +1353,9 @@
       runtime.target = `dex:${next.speciesId}`;
       runtime.userTeamOverride = false;
       runtime.attempts = 0;
-      const plan = recommendTeam(save, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
+      const plan = next.special
+        ? recommendRoamingTeam(save, next.speciesId)
+        : recommendTeam(save, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
       await exclusive("规划缺失图鉴", async () => {
         await applyRecommendedTeam(plan, species(next.speciesId)?.n || String(next.speciesId));
         if (readSave().adv.chapter !== next.chapter) await switchChapter(next.chapter);
@@ -1235,6 +1365,12 @@
 
     if (save.adv.chapter !== runtime.targetPlan.chapter) {
       await exclusive("返回目标章节", () => switchChapter(runtime.targetPlan.chapter));
+      return;
+    }
+
+    if (runtime.targetPlan.special) {
+      if (Number(save.adv.zone?.id) === Number(runtime.targetPlan.speciesId)) return;
+      await exclusive("进入特殊捕获地点", () => enterSpecialZone(runtime.targetPlan));
       return;
     }
 
@@ -1467,9 +1603,17 @@
       } else if (save && isCaught(save, id)) {
         state = t("caughtSkip");
         className = "warn";
-      } else if (save && !plansForSpecies(save, id).length) {
-        state = t("noWildPlace");
-        className = "warn";
+      } else if (save) {
+        const special = specialTargetStatus(save, id);
+        if (special) {
+          state = `${t("specialLocation")}：${special.special.zone} · ${special.open ? t("available") : special.reason}`;
+          className = special.open ? "valid" : "warn";
+        } else if (!plansForSpecies(save, id).length) {
+          state = t("noWildPlace");
+          className = "warn";
+        } else if (meta.g || meta.m) {
+          state = t("legendaryWild");
+        }
       } else if (meta.g || meta.m) {
         state = t("legendaryWild");
       }
@@ -1734,7 +1878,7 @@
       ? targetEnemyIdsForChapter(save.adv.chapter)
       : [runtime.targetPlan.speciesId].filter(Boolean);
     const levelWeight = runtime.target?.startsWith("push:") ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT;
-    const plan = runtime.targetPlan.roaming
+    const plan = runtime.targetPlan.roaming || runtime.targetPlan.special
       ? recommendRoamingTeam(save, runtime.targetPlan.speciesId)
       : recommendTeam(save, enemyIds, { levelWeight });
     await exclusive("手动重新生成阵容", () => applyRecommendedTeam(plan, "用户要求重新生成"));
@@ -1749,7 +1893,7 @@
       .filter((id) => species(id))
       .filter((id) => !ROAMING_LEGENDARIES.includes(id))
       .filter((id) => !isCaught(save, id))
-      .filter((id) => plansForSpecies(save, id).length);
+      .filter((id) => collectionPlansForSpecies(save, id).length);
     settings.manualTargets = [...new Set(ids)];
     if (input) input.value = manualTargetsInputValue();
     saveSettings();
