@@ -50,27 +50,27 @@ function sourceFunctions(names, context = {}) {
 }
 
 test("generated data matches the inspected game build", () => {
-  assert.equal(data.appBuild, "6ad3c84383");
+  assert.equal(data.appBuild, "021c85dbba");
   assert.equal(data.langBuild, "e31962e671");
   assert.equal(Object.keys(data.species).length, 721);
   assert.equal(data.species[4].n, "小火龙");
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.9.6", () => {
-  assert.equal(packageJson.version, "0.9.6");
-  assert.ok(source.includes("// @version      0.9.6"));
-  assert.ok(source.includes('const VERSION = "0.9.6"'));
-  assert.ok(viteConfig.includes('version: "0.9.6"'));
+test("userscript and development metadata share version 0.9.7", () => {
+  assert.equal(packageJson.version, "0.9.7");
+  assert.ok(source.includes("// @version      0.9.7"));
+  assert.ok(source.includes('const VERSION = "0.9.7"'));
+  assert.ok(viteConfig.includes('version: "0.9.7"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.9.6-blue"));
+  assert.ok(readme.includes("version-0.9.7-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.6"));
   assert.ok(readme.includes("eb9c6072d04165cdb91b43261684c2ef77fb1143/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.9.6"));
+  assert.ok(changelog.includes("## 0.9.7"));
 });
 
 test("new regions accept missing presets and only recommend locally available Pokemon", () => {
