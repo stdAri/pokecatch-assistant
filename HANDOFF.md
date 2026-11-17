@@ -4,7 +4,7 @@
 
 - 本地路径：`/Users/young/Project/pokecatch-assistant`
 - 默认分支：`main`
-- 当前版本：`0.5.2`（实现提交 `9d34cc37a2b46abef24463db3db7c5f8a76f6a26 feat: show five collection queue targets` 与文档提交 `cabe176b7cc0a34d51b7461d146e68913bdc93bc docs: update v0.5.2 install details` 已进入远端 `main`；两者 CI 均成功，尚未完成正式存档实机验证，未创建 `v0.5.2` 标签或 Release）
+- 当前版本：`0.9.2`（兼容游戏 `v0.5.04`；待本轮验证、提交并推送，不创建标签或 Release）
 - 首次提交：`939123b feat: initial PokeCatch assistant`
 - GitHub 远端：`git@github.com:stdAri/pokecatch-assistant.git`
 - 许可证：MIT；生成文件包含第三方游戏兼容数据，项目不对 Pokémon 相关名称、素材或第三方数据主张权利。
@@ -28,8 +28,8 @@
 
 ## 3. 已确认的游戏环境
 
-- 游戏前端：`app.c0081498f2.js`
-- 简体中文语言包：`lang-zh-Hans.01332b3d04.js`
+- 游戏前端：`app.9637252c96.js`
+- 简体中文语言包：`lang-zh-Hans.0911ae03c7.js`
 - 存档键：`gachamon-save-v1`
 - 当前游戏提供5个队伍预设，第五队索引为 `4`
 - 当前游戏速度由用户控制，脚本不管理速度
@@ -180,8 +180,8 @@ npm run check
 
 ```bash
 node scripts/build.mjs \
-  /private/tmp/pokecatch-app.c0081498f2.js \
-  /private/tmp/pokecatch-lang-zh-Hans.01332b3d04.js
+  /private/tmp/pokecatch-app.9637252c96.js \
+  /private/tmp/pokecatch-lang-zh-Hans.0911ae03c7.js
 ```
 
 已验证：

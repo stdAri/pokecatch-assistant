@@ -40,26 +40,26 @@ function sourceFunctions(names, context = {}) {
 }
 
 test("generated data matches the inspected game build", () => {
-  assert.equal(data.appBuild, "17255d8d2e");
-  assert.equal(data.langBuild, "2e9ef5e5f5");
+  assert.equal(data.appBuild, "9637252c96");
+  assert.equal(data.langBuild, "0911ae03c7");
   assert.equal(Object.keys(data.species).length, 721);
   assert.equal(data.species[4].n, "小火龙");
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.9.1", () => {
-  assert.equal(packageJson.version, "0.9.1");
-  assert.ok(source.includes("// @version      0.9.1"));
-  assert.ok(source.includes('const VERSION = "0.9.1"'));
-  assert.ok(viteConfig.includes('version: "0.9.1"'));
+test("userscript and development metadata share version 0.9.2", () => {
+  assert.equal(packageJson.version, "0.9.2");
+  assert.ok(source.includes("// @version      0.9.2"));
+  assert.ok(source.includes('const VERSION = "0.9.2"'));
+  assert.ok(viteConfig.includes('version: "0.9.2"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.9.1-blue"));
-  assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.1"));
-  assert.ok(changelog.includes("## 0.9.1"));
+  assert.ok(readme.includes("version-0.9.2-blue"));
+  assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.2"));
+  assert.ok(changelog.includes("## 0.9.2"));
 });
 
 test("new regions accept missing presets and only recommend locally available Pokemon", () => {
@@ -131,6 +131,15 @@ test("route and encounter data can locate Charmander on Route 3", () => {
     .find(({ route }) => route.name === "3号道路");
   assert.ok(route3, "missing Route 3");
   assert.ok(route3.route.areas.includes("kanto-route-3-area"));
+});
+
+test("Unova Victory Road includes the new midpoint Pokemon Center split", () => {
+  const victoryRoad = data.chapters[76];
+  const routes = victoryRoad.routes.filter((route) => route.sourceName === "Route Victoire");
+  assert.equal(routes.length, 2);
+  assert.deepEqual(routes.map((route) => [route.wild, route.trainers]), [[4, 3], [2, 1]]);
+  assert.deepEqual(routes.map((route) => route.stepIndex), [2, 4]);
+  assert.ok(routes[1].areas.includes("bw:unova-victory-road-outside"));
 });
 
 test("routes with explicit habitat keys use their special encounter tables", () => {

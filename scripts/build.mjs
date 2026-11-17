@@ -80,15 +80,17 @@ const shinyStatBonus = Number(bundle.match(/SHINY_STAT_BONUS:([.\d]+)/)?.[1]);
 const undergroundStats = bundle.match(/RANK_MAX:(\d+),RANK_STAT:([.\d]+)/);
 if (!Number.isFinite(shinyStatBonus) || !undergroundStats) throw new Error("stat bonus constants not found");
 const forms = evaluateLiteral(extractLiteralFromPattern(/\.FORMS=function\(\)\{const [A-Za-z_$][\w$]*=\[/, "[", "]"));
+const specialHelperMatch = bundle.match(
+  /const ([A-Za-z_$][\w$]*)=\{kind:"owns",ids:\[243,244,245\][^}]*\},([A-Za-z_$][\w$]*)=\{kind:"owns",ids:\[144,145,146\][^}]*\},[A-Za-z_$][\w$]*=\{[^;]*\},([A-Za-z_$][\w$]*)=[^=]*=>\(\{cond:\{kind:"door",key:[^}]+\}\}\)/,
+);
+if (!specialHelperMatch) throw new Error("special zone helper names not found");
+const [, beastsConditionName, birdsConditionName, doorConditionName] = specialHelperMatch;
 const specialZones = evaluateLiteral(
   extractLiteralFromPattern(/[A-Za-z_$][\w$]*=\[\{id:145,weather:"storm"/, "[", "]"),
   {
-    i: { kind: "owns", ids: [243, 244, 245], text: "Possède les 3 bêtes légendaires" },
-    P: { kind: "owns", ids: [144, 145, 146], text: "Possède les 3 oiseaux légendaires" },
-    Me: (key) => ({ cond: { kind: "door", key } }),
-    r: { kind: "owns", ids: [243, 244, 245], text: "Possède les 3 bêtes légendaires" },
-    te: { kind: "owns", ids: [144, 145, 146], text: "Possède les 3 oiseaux légendaires" },
-    xe: (key) => ({ cond: { kind: "door", key } }),
+    [beastsConditionName]: { kind: "owns", ids: [243, 244, 245], text: "Possède les 3 bêtes légendaires" },
+    [birdsConditionName]: { kind: "owns", ids: [144, 145, 146], text: "Possède les 3 oiseaux légendaires" },
+    [doorConditionName]: (key) => ({ cond: { kind: "door", key } }),
   },
 );
 const compactWeather = {

@@ -8,7 +8,7 @@
 
 <p>
   <a href="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="CHANGELOG.md"><img alt="Version 0.9.1" src="https://img.shields.io/badge/version-0.9.1-blue"></a>
+  <a href="CHANGELOG.md"><img alt="Version 0.9.2" src="https://img.shields.io/badge/version-0.9.2-blue"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="Tampermonkey userscript" src="https://img.shields.io/badge/Tampermonkey-userscript-00485b?logo=tampermonkey">
   <img alt="Simplified Chinese and English" src="https://img.shields.io/badge/UI-简体中文%20%7C%20English-7c3aed">
@@ -75,7 +75,7 @@
 3. 在 Tampermonkey 安装页面检查脚本名称与权限，然后保存。
 4. 刷新 Poke'Catch；游戏顶部状态栏会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前已推送版本的固定安装地址：[安装 PokeCatch 助手 v0.9.1](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/7f195ebbd85b4e76cb1a2b9a15d311cf1d00959e/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.9.1 提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前已推送版本的固定安装地址：[安装 PokeCatch 助手 v0.9.2](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js)。提交后会把该地址固定到真实不可变的 v0.9.2 提交；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
 
 如果浏览器没有自动打开安装页，也可以在 Tampermonkey 中新建脚本，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
@@ -169,7 +169,7 @@ npm run dev
 3. Review the script name and permissions, then confirm installation.
 4. Refresh Poke'Catch; “PokeCatch Assistant” appears in the game's top bar.
 
-For an immutable fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.9.1](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/7f195ebbd85b4e76cb1a2b9a15d311cf1d00959e/dist/pokecatch-assistant.user.js). Automatic updates still use the script's `@updateURL`.
+For a fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.9.2](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js). After the implementation commit, this link will be pinned to its immutable commit. Automatic updates still use the script's `@updateURL`.
 
 ### 🛡️ Safety
 
