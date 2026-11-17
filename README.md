@@ -8,7 +8,7 @@
 
 <p>
   <a href="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="CHANGELOG.md"><img alt="Version 0.9.4" src="https://img.shields.io/badge/version-0.9.4-blue"></a>
+  <a href="CHANGELOG.md"><img alt="Version 0.9.5" src="https://img.shields.io/badge/version-0.9.5-blue"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="Tampermonkey userscript" src="https://img.shields.io/badge/Tampermonkey-userscript-00485b?logo=tampermonkey">
   <img alt="Simplified Chinese and English" src="https://img.shields.io/badge/UI-简体中文%20%7C%20English-7c3aed">
@@ -47,7 +47,7 @@
 
 | 模块 | 用途 |
 | --- | --- |
-| 🌱 培养候选池 | 按个体限定自动配队范围，并用“当前形态种族值 × 异色加成 × 地下强化”筛选培养对象 |
+| 🌱 培养候选池 | 自动配队优先使用勾选个体，并用“当前形态种族值 × 异色加成 × 地下强化”筛选培养对象；不足六种时从其他可出战成员补足 |
 | 🧭 跨地区规划 | 按关都→城都→丰缘→神奥→合众处理目标；先切地区和章节，再使用当地可出战成员配队 |
 | 🏛️ 特殊捕获地点 | 识别漩涡列岛、铃铛塔等49个特殊目标地点，并显示缺少的徽章、宝可梦或前置条件 |
 | 🔣 特殊形态编号 | 支持未知图腾 `201-H`、阿尔宙斯 `493-A` 等游戏可见编号 |
@@ -143,7 +143,7 @@ npm run dev
 
 | Module | Purpose |
 | --- | --- |
-| 🌱 Training pool | Restricts automatic teams to selected individuals and filters candidates by current-form stats, Shiny bonus, and Underground rank |
+| 🌱 Training pool | Prioritizes selected individuals using current-form stats, Shiny bonus, and Underground rank, then fills remaining slots from other usable species |
 | 🧭 Cross-region planning | Processes Kanto → Johto → Hoenn → Sinnoh → Unova, switching region and chapter before building a team from locally available members |
 | 🏛️ Special locations | Recognizes 49 special targets such as Lugia's Whirl Islands and Ho-Oh's Bell Tower, including unmet requirements |
 | 🔣 Alternate-form numbers | Supports visible identifiers such as Unown `201-H` and Arceus `493-A` |

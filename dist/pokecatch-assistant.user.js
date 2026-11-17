@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.9.4
+// @version      0.9.5
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.9.4";
+  const VERSION = "0.9.5";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -67,7 +67,7 @@
       storyLocked: "剧情尚未解锁",
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
-      trainingTitle: "培养候选池", trainingEnable: "启用候选池，自动配队只从已勾选的个体中选择",
+      trainingTitle: "培养候选池", trainingEnable: "启用候选池，自动配队优先使用已勾选的个体",
       trainingPower: "最低综合能力值", trainingPowerHelp: "综合能力值 = 当前形态六项种族值总和 × 异色加成 × 地下强化加成。它只用于筛选培养对象，不代表胜率；填 0 表示不设门槛。",
       trainingEligible: "只显示当前地区可出战成员", trainingSearch: "搜索名称或图鉴编号",
       trainingSelectVisible: "全选当前结果", trainingSelectTeam: "选入当前队伍", trainingClear: "清空选择", trainingRefresh: "刷新列表",
@@ -107,7 +107,7 @@
       storyLocked: "Story not yet unlocked",
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
-      trainingTitle: "Training candidate pool", trainingEnable: "Enable the pool; automatic teams only use checked individuals",
+      trainingTitle: "Training candidate pool", trainingEnable: "Enable the pool; automatic teams prefer checked individuals",
       trainingPower: "Minimum combined stat value", trainingPowerHelp: "Combined stat value = the current form's six base stats × Shiny bonus × Underground rank bonus. It filters training candidates; it is not a win rate. Use 0 for no threshold.",
       trainingEligible: "Only show members usable in the current region", trainingSearch: "Search name or Pokédex number",
       trainingSelectVisible: "Select visible", trainingSelectTeam: "Add current team", trainingClear: "Clear", trainingRefresh: "Refresh",
@@ -486,6 +486,7 @@
     const enemies = enemyProfiles(enemyIds);
     const currentFive = new Set(save.teamSets?.list?.[4] || save.team || []);
     const candidates = teamCandidatesForRecommendation(save);
+    const preferredUids = new Set(preferredTeamCandidates(save).map((mon) => String(mon.uid)));
     const availableIdentities = new Set(candidates.map(teamIdentity));
     const selected = [];
     const details = [];
@@ -494,7 +495,7 @@
       const ranked = candidates
         .filter((mon) => !selectedIdentities.has(teamIdentity(mon)))
         .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel) }))
-        .sort((a, b) => b.score - a.score);
+        .sort((a, b) => Number(preferredUids.has(String(b.mon.uid))) - Number(preferredUids.has(String(a.mon.uid))) || b.score - a.score);
       const choice = ranked[0];
       if (!choice) break;
       selected.push(choice.mon);
@@ -509,7 +510,7 @@
       const replacement = candidates
         .filter((mon) => !selectedIdentities.has(teamIdentity(mon)) && teamIdentity(mon) !== teamIdentity(last))
         .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel) }))
-        .sort((a, b) => b.score - a.score)[0];
+        .sort((a, b) => Number(preferredUids.has(String(b.mon.uid))) - Number(preferredUids.has(String(a.mon.uid))) || b.score - a.score)[0];
       if (replacement) {
         selected.push(replacement.mon);
         details.push({
@@ -990,11 +991,15 @@
     return singleFormBase == null ? "species:" + mon?.id : "single:" + singleFormBase;
   }
 
-  function teamCandidatesForRecommendation(save, config = settings.candidatePool) {
+  function preferredTeamCandidates(save, config = settings.candidatePool) {
     const pool = normalizeCandidatePool(config);
-    if (!pool.enabled) return availableTeamCandidates(save);
+    if (!pool.enabled) return [];
     const selected = new Set(pool.uids);
     return availableTeamCandidates(save).filter((mon) => selected.has(String(mon.uid)) && combinedStatValue(mon) + 1e-9 >= pool.minPower);
+  }
+
+  function teamCandidatesForRecommendation(save) {
+    return availableTeamCandidates(save);
   }
 
   function requiredTeamSize(save) {
@@ -2327,13 +2332,15 @@
     const rows = candidatePoolRows(save, draft);
     list.innerHTML = rows.length ? rows.map((row) => `<label class="pca-training-mon${row.eligible ? "" : " unavailable"}"><input type="checkbox" data-candidate-uid="${escapeHtml(row.uid)}" ${row.checked ? "checked" : ""}><span><b>${row.mon.shiny ? "★ " : ""}${escapeHtml(row.name)}</b><small>#${escapeHtml(row.number)} · Lv.${row.mon.level} · ${language() === "en" ? "combined" : "综合能力"} ${row.power}<br>${escapeHtml(row.note)}${row.eligible ? "" : `<br>${language() === "en" ? "Unavailable in current region" : "当前地区不可出战"}`}</small></span></label>`).join("") : `<div class="pca-note">${language() === "en" ? "No members match these filters." : "没有符合当前筛选条件的宝可梦。"}</div>`;
     const selected = draft.uids.length;
-    const eligible = teamCandidatesForRecommendation(save, { ...draft, enabled: true }).length;
+    const preferred = preferredTeamCandidates(save, { ...draft, enabled: true });
+    const eligible = preferred.length;
+    const distinct = new Set(preferred.map(teamIdentity)).size;
     summary.textContent = language() === "en"
-      ? `${rows.length} shown · ${selected} selected · ${eligible} currently eligible${draft.enabled && eligible < 6 ? " · teams use the available count without filling from outside the pool" : ""}`
-      : `显示${rows.length}只 · 已选${selected}只 · 当前合格${eligible}只${draft.enabled && eligible < 6 ? " · 不足六只时按实际人数配队，不从池外补足" : ""}`;
+      ? `${rows.length} shown · ${selected} selected · ${eligible} currently eligible (${distinct} distinct)${draft.enabled && distinct < 6 ? " · remaining slots are filled from other usable Pokemon" : ""}`
+      : `显示${rows.length}只 · 已选${selected}只 · 当前合格${eligible}只（${distinct}种）${draft.enabled && distinct < 6 ? " · 其余位置从其他可出战宝可梦补足" : ""}`;
     const saved = normalizeCandidatePool(settings.candidatePool);
     active.textContent = saved.enabled
-      ? (language() === "en" ? `Active: ${saved.uids.length} checked individuals, combined stat value ≥ ${saved.minPower}.` : `当前生效：限定已保存的${saved.uids.length}只个体，综合能力值 ≥ ${saved.minPower}。`)
+      ? (language() === "en" ? `Active: prefer ${saved.uids.length} checked individuals with combined stat value ≥ ${saved.minPower}.` : `当前生效：优先使用已保存的${saved.uids.length}只个体，综合能力值 ≥ ${saved.minPower}。`)
       : t("trainingDisabled");
   }
 

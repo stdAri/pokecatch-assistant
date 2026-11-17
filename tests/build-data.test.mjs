@@ -57,17 +57,17 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.9.4", () => {
-  assert.equal(packageJson.version, "0.9.4");
-  assert.ok(source.includes("// @version      0.9.4"));
-  assert.ok(source.includes('const VERSION = "0.9.4"'));
-  assert.ok(viteConfig.includes('version: "0.9.4"'));
+test("userscript and development metadata share version 0.9.5", () => {
+  assert.equal(packageJson.version, "0.9.5");
+  assert.ok(source.includes("// @version      0.9.5"));
+  assert.ok(source.includes('const VERSION = "0.9.5"'));
+  assert.ok(viteConfig.includes('version: "0.9.5"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.9.4-blue"));
+  assert.ok(readme.includes("version-0.9.5-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.4"));
   assert.ok(readme.includes("5a06476035454300a7bff91224cae0748fbc2bbc/dist/pokecatch-assistant.user.js"));
   assert.ok(changelog.includes("## 0.9.4"));
@@ -108,6 +108,7 @@ test("new regions accept missing presets and only recommend locally available Po
     "combinedStatValue",
     "normalizeCandidatePool",
     "teamIdentity",
+    "preferredTeamCandidates",
     "teamCandidatesForRecommendation",
     "requiredTeamSize",
   ], { DATA: data, species: (id) => data.species[id], settings: { candidatePool: { enabled: false, minPower: 500, uids: [] } } });
@@ -140,6 +141,7 @@ test("automatic teams never recommend duplicate species or mutually exclusive fo
     DEFAULT_LEVEL_WEIGHT: 0.22,
     enemyProfiles: () => [],
     teamCandidatesForRecommendation: (save) => save.mons,
+    preferredTeamCandidates: () => [],
     teamIdentity,
     scoreCandidate: (mon) => ({ score: mon.score, reason: String(mon.score) }),
     species: (id) => data.species[id],
@@ -166,6 +168,44 @@ test("automatic teams never recommend duplicate species or mutually exclusive fo
   }, [], { excludedSignatures: new Set([plan.signature]) });
   assert.equal(retryWithoutSeventhSpecies.mons.length, 6);
   assert.equal(retryWithoutSeventhSpecies.signature, plan.signature);
+});
+
+test("training candidates are preferred and remaining slots use other available species", () => {
+  const settings = { candidatePool: { enabled: true, minPower: 0, uids: ["preferred-1", "preferred-2", "preferred-duplicate"] } };
+  const { recommendTeam } = sourceFunctions([
+    "pokemonHomeRegion",
+    "isMonAvailableInCurrentRegion",
+    "availableTeamCandidates",
+    "baseStatTotal",
+    "undergroundRank",
+    "combinedStatMultiplier",
+    "combinedStatValue",
+    "normalizeCandidatePool",
+    "preferredTeamCandidates",
+    "teamCandidatesForRecommendation",
+    "teamIdentity",
+    "recommendTeam",
+  ], {
+    DATA: data,
+    settings,
+    species: (id) => data.species[id],
+    DEFAULT_LEVEL_WEIGHT: 0.22,
+    enemyProfiles: () => [],
+    scoreCandidate: (mon) => ({ score: mon.score, reason: String(mon.score) }),
+  });
+  const plan = recommendTeam({
+    team: [],
+    mons: [
+      { uid: "preferred-1", id: 1, level: 10, score: 1 },
+      { uid: "preferred-2", id: 2, level: 10, score: 2 },
+      { uid: "preferred-duplicate", id: 1, level: 10, score: 3 },
+      ...[3, 4, 5, 6, 7].map((id) => ({ uid: `fallback-${id}`, id, level: 10, score: 100 - id })),
+    ],
+  }, []);
+  assert.equal(plan.mons.length, 6);
+  assert.ok(plan.mons.some((mon) => mon.uid === "preferred-duplicate"));
+  assert.ok(plan.mons.some((mon) => mon.uid === "preferred-2"));
+  assert.equal(new Set(plan.mons.map((mon) => mon.id)).size, 6);
 });
 
 test("Johto finale contains Red's actual six Pokemon", () => {
