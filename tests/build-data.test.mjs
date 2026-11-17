@@ -59,6 +59,7 @@ test("userscript and development metadata share version 0.9.2", () => {
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
   assert.ok(readme.includes("version-0.9.2-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.2"));
+  assert.ok(readme.includes("332cfb220af944e6f341f20f3cc4ad78461b6c7e/dist/pokecatch-assistant.user.js"));
   assert.ok(changelog.includes("## 0.9.2"));
 });
 

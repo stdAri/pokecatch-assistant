@@ -4,7 +4,7 @@
 
 - 本地路径：`/Users/young/Project/pokecatch-assistant`
 - 默认分支：`main`
-- 当前版本：`0.9.2`（兼容游戏 `v0.5.04`；待本轮验证、提交并推送，不创建标签或 Release）
+- 当前版本：`0.9.2`（实现提交 `332cfb220af944e6f341f20f3cc4ad78461b6c7e fix: support game build 9637252c96` 已进入 `main`；本地构建、49项测试、语法检查、差异检查及旧资源构建器验证均通过；不创建标签或 Release）
 - 首次提交：`939123b feat: initial PokeCatch assistant`
 - GitHub 远端：`git@github.com:stdAri/pokecatch-assistant.git`
 - 许可证：MIT；生成文件包含第三方游戏兼容数据，项目不对 Pokémon 相关名称、素材或第三方数据主张权利。
