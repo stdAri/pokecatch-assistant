@@ -47,19 +47,19 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.8.1", () => {
-  assert.equal(packageJson.version, "0.8.1");
-  assert.ok(source.includes("// @version      0.8.1"));
-  assert.ok(source.includes('const VERSION = "0.8.1"'));
-  assert.ok(viteConfig.includes('version: "0.8.1"'));
+test("userscript and development metadata share version 0.9.0", () => {
+  assert.equal(packageJson.version, "0.9.0");
+  assert.ok(source.includes("// @version      0.9.0"));
+  assert.ok(source.includes('const VERSION = "0.9.0"'));
+  assert.ok(viteConfig.includes('version: "0.9.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.8.1-blue"));
+  assert.ok(readme.includes("version-0.9.0-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.8.1"));
-  assert.ok(changelog.includes("## 0.8.1"));
+  assert.ok(changelog.includes("## 0.9.0"));
 });
 
 test("new regions accept missing presets and only recommend locally available Pokemon", () => {
@@ -374,6 +374,32 @@ test("control panel separates features into dedicated tabs", () => {
   assert.ok(source.includes('data-select-setting="regionScope"'));
   assert.ok(source.includes('data-setting="autoPushForCollection"'));
   assert.ok(source.includes('autoPushForCollection: true'));
+});
+
+test("daily raids run before automatic tasks and keep their dedicated team", () => {
+  assert.ok(source.includes('data-setting="prioritizeDailyRaid"'));
+  assert.ok(source.includes('prioritizeDailyRaid: true'));
+  assert.ok(source.includes('await prioritizeDailyRaid(save)'));
+  assert.ok(source.includes('root.querySelectorAll("[data-raid-go]")'));
+  assert.ok(source.includes('save.eventTeams?.[`raid:${region}`]'));
+  const raidFlow = sourceFunctionText("prioritizeDailyRaid");
+  assert.equal(raidFlow.includes("configurePreset"), false, "daily raids must not overwrite Team 5");
+  assert.ok(raidFlow.includes('root.querySelector(".rc-card, [data-p]")'));
+  assert.equal(raidFlow.includes('root.querySelector(".rc-card, [data-p], .pg-empty")'), false);
+  assert.ok(raidFlow.includes("runtime.dailyRaidRetryAt = Date.now() + 5 * 60_000"));
+
+  const { raidDateKey, raidSetupStatus } = sourceFunctions(["raidDateKey", "raidSetupStatus"]);
+  assert.equal(raidDateKey(Date.parse("2026-11-17T23:30:00Z")), "2026-11-18");
+  const save = {
+    mons: [{ uid: "mine-1" }, { uid: "mine-2" }],
+    eventTeams: { "raid:kanto": ["mine-1", "missing", "mine-2"] },
+    raids: { pick: { kanto: ["ally-1", "ally-2"] } },
+  };
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(raidSetupStatus(save, "kanto"))),
+    { team: ["mine-1", "mine-2"], allies: ["ally-1", "ally-2"], ready: true },
+  );
+  assert.equal(raidSetupStatus({ ...save, raids: { pick: { kanto: ["ally-1"] } } }, "kanto").ready, false);
 });
 
 test("collection scope and story-locked targets are resolved independently", () => {

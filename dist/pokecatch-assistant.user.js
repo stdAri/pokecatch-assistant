@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.8.1
+// @version      0.9.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.8.1";
+  const VERSION = "0.9.0";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -53,6 +53,9 @@
       pushTab: "推图", collectTab: "收集", trainingTab: "培养", teamTab: "阵容", berriesTab: "果子", diagnosticsTab: "诊断",
       startPush: "开始推图", pauseResume: "暂停/继续", stop: "停止",
       pushNote: "从当前地区的剧情前沿持续推进；推图期间不会追踪神兽。",
+      prioritizeDailyRaid: "每天优先完成团体战",
+      prioritizeDailyRaidNote: "启动任一自动任务后，每天先完成可用的异色团体战；使用团体战页面已配置的2人队伍与盟友，不会改动第五队。",
+      dailyRaid: "每日团体战", raidTeamMissing: "请先在团体战页面配置2只宝可梦", raidAlliesMissing: "请先在团体战页面选择2名盟友",
       selectCollection: "选择收集任务", dexCollection: "普通图鉴收集", roamOnly: "仅追踪神兽", combined: "普通 + 神兽协同",
       collectionNote: "三个入口互相独立：普通收集不会追踪神兽；仅追踪神兽不会刷普通目标；需要时才选择协同。",
       ordinaryTargets: "普通野外目标", region: "地区", currentRegion: "当前地区", allRegions: "所有已解锁地区", customRegions: "自定义地区",
@@ -90,6 +93,9 @@
       pushTab: "Story", collectTab: "Collect", trainingTab: "Training", teamTab: "Team", berriesTab: "Berries", diagnosticsTab: "Diagnostics",
       startPush: "Start story", pauseResume: "Pause / Resume", stop: "Stop",
       pushNote: "Continue from the current region's story frontier; roaming legendaries are not tracked in Story mode.",
+      prioritizeDailyRaid: "Prioritize the daily raid",
+      prioritizeDailyRaidNote: "Before any automatic task, complete the available daily Shiny raid using the two Pokemon and allies configured on the Raids page. Team 5 is never changed.",
+      dailyRaid: "Daily raid", raidTeamMissing: "Configure two Pokemon on the Raids page first", raidAlliesMissing: "Choose two allies on the Raids page first",
       selectCollection: "Choose a collection task", dexCollection: "Pokédex collection", roamOnly: "Roamers only", combined: "Pokédex + roamers",
       collectionNote: "These modes are independent: Pokédex collection ignores roamers, Roamers only ignores ordinary targets, and Combined coordinates both.",
       ordinaryTargets: "Ordinary wild targets", region: "Region", currentRegion: "Current region", allRegions: "All unlocked regions", customRegions: "Custom regions",
@@ -132,6 +138,7 @@
     language: "auto",
     activeTab: "push",
     lockTeam5: false,
+    prioritizeDailyRaid: true,
     candidatePool: { enabled: false, minPower: 500, uids: [] },
     desktopNotifications: false,
     soundNotifications: true,
@@ -176,6 +183,10 @@
     collectionQueue: [],
     collectionQueueSignature: "",
     waitingPlan: null,
+    dailyRaidDate: null,
+    dailyRaidCompletedDate: null,
+    dailyRaidActiveRegion: null,
+    dailyRaidRetryAt: 0,
   };
 
   let settings = loadSettings();
@@ -521,6 +532,145 @@
       await pacedClick(button, `${name}页面按钮`);
       await waitFor(() => button.classList.contains("active"), { label: `${name}页面` });
     }
+  }
+
+  function raidDateKey(timestamp = Date.now()) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Paris",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(timestamp);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  }
+
+  function raidSetupStatus(save, region) {
+    const knownUids = new Set((save.mons || []).map((mon) => mon.uid));
+    const team = (save.eventTeams?.[`raid:${region}`] || []).filter((uid) => knownUids.has(uid));
+    const allies = (save.raids?.pick?.[region] || []).filter(Boolean);
+    return {
+      team,
+      allies,
+      ready: team.length >= 2 && allies.length >= 2,
+    };
+  }
+
+  function finishDailyRaidCheck(date, message) {
+    runtime.dailyRaidCompletedDate = date;
+    runtime.dailyRaidActiveRegion = null;
+    if (message) log(message);
+  }
+
+  async function prioritizeDailyRaid(save) {
+    if (!settings.prioritizeDailyRaid) return false;
+    const date = raidDateKey(Number(save.lastTick) || Date.now());
+    if (runtime.dailyRaidDate !== date) {
+      runtime.dailyRaidDate = date;
+      runtime.dailyRaidCompletedDate = null;
+      runtime.dailyRaidActiveRegion = null;
+    }
+
+    const activeRaid = save.adv?.event?.raid ? save.adv.event : null;
+    if (activeRaid) {
+      runtime.dailyRaidActiveRegion = activeRaid.reg || null;
+      return true;
+    }
+    runtime.dailyRaidActiveRegion = null;
+    if (runtime.dailyRaidCompletedDate === date) return false;
+    if (runtime.dailyRaidRetryAt > Date.now()) return false;
+
+    return exclusive(language() === "en" ? "Check daily raid" : "检查每日团体战", async () => {
+      await openScreen("raid");
+      const root = await waitFor(() => document.querySelector("#raid-root"), { label: t("dailyRaid") });
+      const entry = await waitFor(
+        () => root.querySelector("[data-raid-draw], [data-raid-page=\"chroma\"], [data-p], .pg-empty"),
+        { timeout: 15_000, label: language() === "en" ? "daily raid entry" : "每日团体战入口" },
+      );
+
+      if (entry.matches("[data-p]")) {
+        finishDailyRaidCheck(date, language() === "en" ? "Daily raid skipped: sign in to the game first" : "今日团体战已跳过：请先登录游戏账号");
+        return;
+      }
+      if (entry.matches(".pg-empty")) {
+        finishDailyRaidCheck(date, language() === "en" ? "Daily raid is not available yet" : "今日没有可用团体战或尚未解锁");
+        return;
+      }
+      if (entry.matches("[data-raid-draw]")) {
+        await pacedClick(entry, language() === "en" ? "daily raid draw" : "抽取每日团体战");
+        await waitFor(
+          () => root.querySelector("[data-raid-page=\"chroma\"], .rc-card, [data-p]"),
+          { timeout: 20_000, label: language() === "en" ? "daily raid draw" : "每日团体战抽取" },
+        );
+      }
+
+      const raidPage = root.querySelector('[data-raid-page="chroma"]');
+      if (raidPage) {
+        await pacedClick(raidPage, language() === "en" ? "daily raid" : "每日团体战入口");
+      }
+      try {
+        await waitFor(
+          () => root.querySelector(".rc-card, [data-p]"),
+          { timeout: 15_000, label: language() === "en" ? "daily raid list" : "每日团体战列表" },
+        );
+      } catch {
+        runtime.dailyRaidRetryAt = Date.now() + 5 * 60_000;
+        runtime.dailyRaidActiveRegion = null;
+        log(language() === "en"
+          ? "Daily raid data is still unavailable; retrying in five minutes"
+          : "团体战数据暂时不可用，5分钟后重试");
+        return;
+      }
+
+      if (root.querySelector("[data-p]")) {
+        finishDailyRaidCheck(date, language() === "en" ? "Daily raid skipped: sign in to the game first" : "今日团体战已跳过：请先登录游戏账号");
+        return;
+      }
+      const go = [...root.querySelectorAll("[data-raid-go]")].find((button) => !button.disabled);
+      if (!go) {
+        finishDailyRaidCheck(date, language() === "en" ? "Today's available raids are complete" : "今日可用团体战已完成");
+        return;
+      }
+
+      const region = go.dataset.raidGo;
+      const setup = raidSetupStatus(readSave(), region);
+      runtime.dailyRaidActiveRegion = region;
+      if (setup.team.length < 2) {
+        diagnostic(t("dailyRaid"), new Error(`${t("raidTeamMissing")}（${t(region)}）`), {
+          suggestion: language() === "en"
+            ? "The Raids page is open. Configure its two-Pokemon team, then restart the automatic task."
+            : "已停在团体战页面；配置该地区的2人团体战队伍后，重新启动自动任务。",
+        });
+        return;
+      }
+      if (setup.allies.length < 2) {
+        diagnostic(t("dailyRaid"), new Error(`${t("raidAlliesMissing")}（${t(region)}）`), {
+          suggestion: language() === "en"
+            ? "The Raids page is open. Choose two allies there, then restart the automatic task."
+            : "已停在团体战页面；选择2名盟友后，重新启动自动任务。",
+        });
+        return;
+      }
+
+      await pacedClick(go, language() === "en" ? "start daily raid" : "开始每日团体战");
+      const outcome = await waitFor(
+        () => readSave().adv?.event?.raid
+          || document.querySelector("#modal-root.open .modal-actions .btn.primary")
+          || document.querySelector("#evt-pick.open, #modal-root.open .raid-dlg"),
+        { timeout: 10_000, label: language() === "en" ? "daily raid start" : "每日团体战启动" },
+      );
+      if (outcome instanceof Element && outcome.matches("#modal-root.open .modal-actions .btn.primary")) {
+        await pacedClick(outcome, language() === "en" ? "confirm daily raid" : "确认开始团体战");
+      } else if (outcome instanceof Element) {
+        throw new Error(language() === "en" ? "The raid setup is no longer valid; configure it again on the Raids page" : "团体战配置已失效，请在团体战页面重新配置");
+      }
+      const event = await waitFor(
+        () => readSave().adv?.event?.raid && readSave().adv.event,
+        { timeout: 10_000, label: language() === "en" ? "enter daily raid" : "进入每日团体战" },
+      );
+      runtime.dailyRaidActiveRegion = event.reg || region;
+      log(language() === "en" ? `Daily raid started: ${t(region)}` : `已优先开始每日团体战：${t(region)}`);
+    });
   }
 
   async function switchChapter(chapterIndex, { settle = true } = {}) {
@@ -1849,6 +1999,16 @@
     }
     try {
       const save = readSave();
+      if (save.adv?.event?.raid) {
+        runtime.dailyRaidActiveRegion = save.adv.event.reg || null;
+        renderStatus();
+        return;
+      }
+      if (!settings.prioritizeDailyRaid) runtime.dailyRaidActiveRegion = null;
+      if (!runtime.paused && !runtime.error && runtime.mode !== "idle" && await prioritizeDailyRaid(save)) {
+        renderStatus();
+        return;
+      }
       if (!runtime.paused && !runtime.error) await manageBerries(save);
       if (runtime.mode === "idle" || runtime.paused) {
         renderStatus();
@@ -2186,6 +2346,8 @@
         <div class="pca-tabpanel ${settings.activeTab === "push" ? "active" : ""}" role="tabpanel" data-tabpanel="push">
           <div class="pca-row"><button class="pca-btn primary pca-grow" data-act="push">${t("startPush")}</button><button class="pca-btn pca-grow" data-act="pause">${t("pauseResume")}</button><button class="pca-btn danger" data-act="stop">${t("stop")}</button></div>
           <div class="pca-note">${t("pushNote")}</div>
+          <div class="pca-card"><label class="pca-row"><input type="checkbox" data-setting="prioritizeDailyRaid" ${settings.prioritizeDailyRaid ? "checked" : ""}>${t("prioritizeDailyRaid")}</label>
+            <div class="pca-note">${t("prioritizeDailyRaidNote")}</div></div>
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "collect" ? "active" : ""}" role="tabpanel" data-tabpanel="collect">
           <div class="pca-card"><h4>${t("selectCollection")}</h4>
@@ -2579,12 +2741,19 @@
       node.textContent = modeText;
       node.className = runtime.error ? "pca-status err" : runtime.paused ? "pca-status pause" : runtime.mode !== "idle" ? "pca-status run" : "";
     });
-    const targetName = runtime.target === "roam:waiting"
-      ? t("waitingRoamers")
-      : runtime.targetPlan?.moneyFarm ? t("moneyFarm")
-      : runtime.targetPlan?.speciesId ? species(runtime.targetPlan.speciesId)?.n : runtime.targetPlan?.chapterName;
+    const raidEvent = save?.adv?.event?.raid ? save.adv.event : null;
+    const targetName = runtime.dailyRaidActiveRegion || raidEvent
+      ? `${t("dailyRaid")}${raidEvent?.id ? ` · ${species(raidEvent.id)?.n || raidEvent.id}` : ""}`
+      : runtime.target === "roam:waiting"
+        ? t("waitingRoamers")
+        : runtime.targetPlan?.moneyFarm ? t("moneyFarm")
+        : runtime.targetPlan?.speciesId ? species(runtime.targetPlan.speciesId)?.n : runtime.targetPlan?.chapterName;
     panel.querySelectorAll('[data-status="target"]').forEach((node) => { node.textContent = targetName || "—"; });
-    panel.querySelectorAll('[data-status="place"]').forEach((node) => { node.textContent = `${chapter(save?.adv?.chapter)?.name || "—"}${runtime.targetPlan?.zone ? ` / ${runtime.targetPlan.zone}` : ""}`; });
+    panel.querySelectorAll('[data-status="place"]').forEach((node) => {
+      node.textContent = runtime.dailyRaidActiveRegion || raidEvent
+        ? `${t("dailyRaid")} · ${t(runtime.dailyRaidActiveRegion || raidEvent?.reg)}`
+        : `${chapter(save?.adv?.chapter)?.name || "—"}${runtime.targetPlan?.zone ? ` / ${runtime.targetPlan.zone}` : ""}`;
+    });
     let attemptText = String(runtime.attempts);
     if (runtime.targetPlan?.roaming && runtime.attempts > 0) {
       const captureKey = save?.buffs?.capture?.key;

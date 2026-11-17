@@ -3,13 +3,14 @@
 面向 `https://pokecatch-online.netlify.app/` 的 Tampermonkey 用户脚本。
 
 [![CI](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.8.1-blue)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue)](CHANGELOG.md)
 
 > 当前为实验性 Beta。它是玩家制作的非官方工具，与 Poke'Catch 作者、Nintendo、Game Freak、Creatures 或 The Pokémon Company 无关。
 
 当前版本实现：
 
 - 从当前地区剧情前沿持续推图；
+- 默认每天优先完成可用的异色团体战，再恢复原推图或收集任务；团体战使用其页面内按地区独立配置的2人队伍和2名盟友，不改动第五队；
 - 根据章节 Boss、已观察到的敌人、属性克制、种族能力、招式和长期培养价值生成第五队；
 - 等级不足时持续练级；等级因素排除后，连续失败会轮换阵容；
 - 推图、普通缺失图鉴、仅追踪雷公/炎帝/水君、普通与神兽协同四个入口互相独立；推图不追踪神兽，三个收集入口同一时间只运行一个；
@@ -93,7 +94,7 @@ npm run dev
 
 ## English
 
-PokeCatch Assistant is an experimental, unofficial Tampermonkey userscript for [Poke'Catch](https://pokecatch-online.netlify.app/). It automates story progression, team-5 planning, missing-Pokédex collection, roaming-legendary tracking, and optional berry usage through the game's normal page controls.
+PokeCatch Assistant is an experimental, unofficial Tampermonkey userscript for [Poke'Catch](https://pokecatch-online.netlify.app/). It prioritizes the available daily Shiny raid using the raid-specific team and allies, then resumes story progression, team-5 planning, missing-Pokédex collection, roaming-legendary tracking, and optional berry usage through the game's normal page controls.
 
 The script reads the local `gachamon-save-v1` state but does not write to it, alter randomness, forge capture results, access authentication tokens, or call cloud-save APIs. It pauses when the supported game build or critical page structure no longer matches.
 
