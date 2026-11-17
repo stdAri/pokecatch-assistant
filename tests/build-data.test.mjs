@@ -47,19 +47,19 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.9.0", () => {
-  assert.equal(packageJson.version, "0.9.0");
-  assert.ok(source.includes("// @version      0.9.0"));
-  assert.ok(source.includes('const VERSION = "0.9.0"'));
-  assert.ok(viteConfig.includes('version: "0.9.0"'));
+test("userscript and development metadata share version 0.9.1", () => {
+  assert.equal(packageJson.version, "0.9.1");
+  assert.ok(source.includes("// @version      0.9.1"));
+  assert.ok(source.includes('const VERSION = "0.9.1"'));
+  assert.ok(viteConfig.includes('version: "0.9.1"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.9.0-blue"));
+  assert.ok(readme.includes("version-0.9.1-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.0"));
-  assert.ok(changelog.includes("## 0.9.0"));
+  assert.ok(changelog.includes("## 0.9.1"));
 });
 
 test("new regions accept missing presets and only recommend locally available Pokemon", () => {
@@ -384,6 +384,12 @@ test("daily raids run before automatic tasks and keep their dedicated team", () 
   assert.ok(source.includes('save.eventTeams?.[`raid:${region}`]'));
   const raidFlow = sourceFunctionText("prioritizeDailyRaid");
   assert.equal(raidFlow.includes("configurePreset"), false, "daily raids must not overwrite Team 5");
+  assert.ok(raidFlow.indexOf("await optimizeDailyRaidTeam(root, region)")
+    < raidFlow.indexOf("await selectFirstDailyRaidAllies(root, region)"));
+  assert.ok(raidFlow.indexOf("await selectFirstDailyRaidAllies(root, region)")
+    < raidFlow.indexOf("await pacedClick(go"));
+  assert.ok(sourceFunctionText("optimizeDailyRaidTeam").includes("#evt-pick.open #evt-opt"));
+  assert.ok(sourceFunctionText("selectFirstDailyRaidAllies").includes("#modal-root.open .raid-dlg [data-pick]"));
   assert.ok(raidFlow.includes('root.querySelector(".rc-card, [data-p]")'));
   assert.equal(raidFlow.includes('root.querySelector(".rc-card, [data-p], .pg-empty")'), false);
   assert.ok(raidFlow.includes("runtime.dailyRaidRetryAt = Date.now() + 5 * 60_000"));

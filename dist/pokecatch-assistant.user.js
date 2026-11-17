@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.9.0
+// @version      0.9.1
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.9.0";
+  const VERSION = "0.9.1";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -54,7 +54,7 @@
       startPush: "开始推图", pauseResume: "暂停/继续", stop: "停止",
       pushNote: "从当前地区的剧情前沿持续推进；推图期间不会追踪神兽。",
       prioritizeDailyRaid: "每天优先完成团体战",
-      prioritizeDailyRaidNote: "启动任一自动任务后，每天先完成可用的异色团体战；使用团体战页面已配置的2人队伍与盟友，不会改动第五队。",
+      prioritizeDailyRaidNote: "启动任一自动任务后，每天先完成可用的异色团体战；己方2人队使用游戏原生“优化”，两个盟友槽依次选择列表第一项，不会改动第五队。",
       dailyRaid: "每日团体战", raidTeamMissing: "请先在团体战页面配置2只宝可梦", raidAlliesMissing: "请先在团体战页面选择2名盟友",
       selectCollection: "选择收集任务", dexCollection: "普通图鉴收集", roamOnly: "仅追踪神兽", combined: "普通 + 神兽协同",
       collectionNote: "三个入口互相独立：普通收集不会追踪神兽；仅追踪神兽不会刷普通目标；需要时才选择协同。",
@@ -94,7 +94,7 @@
       startPush: "Start story", pauseResume: "Pause / Resume", stop: "Stop",
       pushNote: "Continue from the current region's story frontier; roaming legendaries are not tracked in Story mode.",
       prioritizeDailyRaid: "Prioritize the daily raid",
-      prioritizeDailyRaidNote: "Before any automatic task, complete the available daily Shiny raid using the two Pokemon and allies configured on the Raids page. Team 5 is never changed.",
+      prioritizeDailyRaidNote: "Before any automatic task, optimize the raid's two-Pokemon team with the game's own control, choose the first available option for each ally slot, and complete the daily Shiny raid. Team 5 is never changed.",
       dailyRaid: "Daily raid", raidTeamMissing: "Configure two Pokemon on the Raids page first", raidAlliesMissing: "Choose two allies on the Raids page first",
       selectCollection: "Choose a collection task", dexCollection: "Pokédex collection", roamOnly: "Roamers only", combined: "Pokédex + roamers",
       collectionNote: "These modes are independent: Pokédex collection ignores roamers, Roamers only ignores ordinary targets, and Combined coordinates both.",
@@ -556,6 +556,51 @@
     };
   }
 
+  async function optimizeDailyRaidTeam(root, region) {
+    const edit = await waitFor(
+      () => root.querySelector(`[data-raid-edit="${region}"]`),
+      { label: language() === "en" ? "raid team editor" : "团体战队伍编辑器" },
+    );
+    await pacedClick(edit, language() === "en" ? "raid team editor" : "团体战队伍编辑器");
+    const optimize = await waitFor(
+      () => document.querySelector("#evt-pick.open #evt-opt"),
+      { label: language() === "en" ? "raid team optimize button" : "团体战队伍优化按钮" },
+    );
+    await pacedClick(optimize, language() === "en" ? "optimize raid team" : "优化团体战队伍");
+    await waitFor(
+      () => raidSetupStatus(readSave(), region).team.length >= 2,
+      { label: language() === "en" ? "optimized raid team" : "优化后的团体战队伍" },
+    );
+    const close = await waitFor(
+      () => document.querySelector("#evt-pick.open [data-evt-close]"),
+      { label: language() === "en" ? "raid team close button" : "团体战队伍关闭按钮" },
+    );
+    await pacedClick(close, language() === "en" ? "close raid team editor" : "关闭团体战队伍编辑器");
+    await waitFor(
+      () => !document.querySelector("#evt-pick.open"),
+      { label: language() === "en" ? "raid team editor close" : "团体战队伍编辑器关闭" },
+    );
+  }
+
+  async function selectFirstDailyRaidAllies(root, region) {
+    for (let slot = 0; slot < 2; slot += 1) {
+      const slotButton = await waitFor(
+        () => root.querySelector(`[data-raid-slot="${region}|${slot}"]`),
+        { label: language() === "en" ? `raid ally slot ${slot + 1}` : `团体战盟友槽${slot + 1}` },
+      );
+      await pacedClick(slotButton, language() === "en" ? `raid ally slot ${slot + 1}` : `团体战盟友槽${slot + 1}`);
+      const first = await waitFor(
+        () => document.querySelector("#modal-root.open .raid-dlg [data-pick]"),
+        { label: language() === "en" ? "first available raid ally" : "第一个可用团体战盟友" },
+      );
+      await pacedClick(first, language() === "en" ? "first available raid ally" : "第一个可用团体战盟友");
+      await waitFor(
+        () => Boolean(readSave().raids?.pick?.[region]?.[slot]),
+        { label: language() === "en" ? `raid ally ${slot + 1} selection` : `团体战盟友${slot + 1}选择` },
+      );
+    }
+  }
+
   function finishDailyRaidCheck(date, message) {
     runtime.dailyRaidCompletedDate = date;
     runtime.dailyRaidActiveRegion = null;
@@ -626,15 +671,17 @@
         finishDailyRaidCheck(date, language() === "en" ? "Daily raid skipped: sign in to the game first" : "今日团体战已跳过：请先登录游戏账号");
         return;
       }
-      const go = [...root.querySelectorAll("[data-raid-go]")].find((button) => !button.disabled);
-      if (!go) {
+      const available = [...root.querySelectorAll("[data-raid-go]")].find((button) => !button.disabled);
+      if (!available) {
         finishDailyRaidCheck(date, language() === "en" ? "Today's available raids are complete" : "今日可用团体战已完成");
         return;
       }
 
-      const region = go.dataset.raidGo;
-      const setup = raidSetupStatus(readSave(), region);
+      const region = available.dataset.raidGo;
       runtime.dailyRaidActiveRegion = region;
+      await optimizeDailyRaidTeam(root, region);
+      await selectFirstDailyRaidAllies(root, region);
+      const setup = raidSetupStatus(readSave(), region);
       if (setup.team.length < 2) {
         diagnostic(t("dailyRaid"), new Error(`${t("raidTeamMissing")}（${t(region)}）`), {
           suggestion: language() === "en"
@@ -652,6 +699,10 @@
         return;
       }
 
+      const go = await waitFor(
+        () => [...root.querySelectorAll(`[data-raid-go="${region}"]`)].find((button) => !button.disabled),
+        { label: language() === "en" ? "daily raid start button" : "每日团体战开始按钮" },
+      );
       await pacedClick(go, language() === "en" ? "start daily raid" : "开始每日团体战");
       const outcome = await waitFor(
         () => readSave().adv?.event?.raid
