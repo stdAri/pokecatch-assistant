@@ -39,11 +39,11 @@ function extractLiteral(marker, open, close) {
   throw new Error(`unterminated literal: ${marker}`);
 }
 
-function extractLiteralFrom(marker, open, close) {
-  const markerStart = bundle.indexOf(marker);
-  if (markerStart < 0) throw new Error(`marker not found: ${marker}`);
-  const literalStart = bundle.indexOf(open, markerStart);
-  if (literalStart < 0) throw new Error(`literal not found after marker: ${marker}`);
+function extractLiteralFromPattern(pattern, open, close) {
+  const match = bundle.match(pattern);
+  if (!match || match.index == null) throw new Error(`pattern not found: ${pattern}`);
+  const literalStart = bundle.indexOf(open, match.index);
+  if (literalStart < 0) throw new Error(`literal not found after pattern: ${pattern}`);
   let depth = 0;
   let quote = null;
   let escaped = false;
@@ -62,7 +62,7 @@ function extractLiteralFrom(marker, open, close) {
     if (char === open) depth += 1;
     else if (char === close && --depth === 0) return bundle.slice(literalStart, i + 1);
   }
-  throw new Error(`unterminated literal: ${marker}`);
+  throw new Error(`unterminated literal after pattern: ${pattern}`);
 }
 
 function evaluateLiteral(source, args = {}) {
@@ -79,13 +79,16 @@ const roamingWeather = evaluateLiteral(extractLiteral("MIN_LEVEL:100,WEATHER:{",
 const shinyStatBonus = Number(bundle.match(/SHINY_STAT_BONUS:([.\d]+)/)?.[1]);
 const undergroundStats = bundle.match(/RANK_MAX:(\d+),RANK_STAT:([.\d]+)/);
 if (!Number.isFinite(shinyStatBonus) || !undergroundStats) throw new Error("stat bonus constants not found");
-const forms = evaluateLiteral(extractLiteral("a.FORMS=function(){const h=[", "[", "]"));
+const forms = evaluateLiteral(extractLiteralFromPattern(/\.FORMS=function\(\)\{const [A-Za-z_$][\w$]*=\[/, "[", "]"));
 const specialZones = evaluateLiteral(
-  extractLiteralFrom('Pe=[{id:145,weather:"storm"', "[", "]"),
+  extractLiteralFromPattern(/[A-Za-z_$][\w$]*=\[\{id:145,weather:"storm"/, "[", "]"),
   {
     i: { kind: "owns", ids: [243, 244, 245], text: "Possède les 3 bêtes légendaires" },
     P: { kind: "owns", ids: [144, 145, 146], text: "Possède les 3 oiseaux légendaires" },
     Me: (key) => ({ cond: { kind: "door", key } }),
+    r: { kind: "owns", ids: [243, 244, 245], text: "Possède les 3 bêtes légendaires" },
+    te: { kind: "owns", ids: [144, 145, 146], text: "Possède les 3 oiseaux légendaires" },
+    xe: (key) => ({ cond: { kind: "door", key } }),
   },
 );
 const compactWeather = {
