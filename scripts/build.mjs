@@ -177,6 +177,11 @@ const compactSpecies = Object.fromEntries(
   ]),
 );
 
+const singleFormBases = new Set(forms.filter((form) => form.single).map((form) => form.base));
+for (const base of singleFormBases) {
+  if (compactSpecies[base]) compactSpecies[base].u = base;
+}
+
 const baseUnown = compactSpecies[201];
 baseUnown.n = `${baseUnown.n} A`;
 baseUnown.d = "201-A";
@@ -203,6 +208,7 @@ for (const form of forms) {
     s: stats,
     l: [...base.l, ...extraMoves.map((key) => [50, key])],
     d: `${form.base}-${suffix}`,
+    ...(singleFormBases.has(form.base) ? { u: form.base } : {}),
   };
 }
 

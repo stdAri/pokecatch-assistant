@@ -18,7 +18,17 @@ function sourceFunctionText(name) {
   const signature = `function ${name}(`;
   const functionStart = source.indexOf(signature);
   assert.notEqual(functionStart, -1, `missing function ${name}`);
-  const bodyStart = source.indexOf("{", functionStart);
+  const parametersStart = source.indexOf("(", functionStart);
+  let parameterDepth = 0;
+  let bodyStart = -1;
+  for (let index = parametersStart; index < source.length; index += 1) {
+    if (source[index] === "(") parameterDepth += 1;
+    if (source[index] === ")" && --parameterDepth === 0) {
+      bodyStart = source.indexOf("{", index);
+      break;
+    }
+  }
+  assert.notEqual(bodyStart, -1, `missing function body for ${name}`);
   let depth = 0;
   for (let index = bodyStart; index < source.length; index += 1) {
     if (source[index] === "{") depth += 1;
@@ -47,20 +57,20 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.9.2", () => {
-  assert.equal(packageJson.version, "0.9.2");
-  assert.ok(source.includes("// @version      0.9.2"));
-  assert.ok(source.includes('const VERSION = "0.9.2"'));
-  assert.ok(viteConfig.includes('version: "0.9.2"'));
+test("userscript and development metadata share version 0.9.3", () => {
+  assert.equal(packageJson.version, "0.9.3");
+  assert.ok(source.includes("// @version      0.9.3"));
+  assert.ok(source.includes('const VERSION = "0.9.3"'));
+  assert.ok(viteConfig.includes('version: "0.9.3"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.9.2-blue"));
-  assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.2"));
-  assert.ok(readme.includes("332cfb220af944e6f341f20f3cc4ad78461b6c7e/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.9.2"));
+  assert.ok(readme.includes("version-0.9.3-blue"));
+  assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.3"));
+  assert.ok(readme.includes("main/dist/pokecatch-assistant.user.js"));
+  assert.ok(changelog.includes("## 0.9.3"));
 });
 
 test("new regions accept missing presets and only recommend locally available Pokemon", () => {
@@ -97,6 +107,7 @@ test("new regions accept missing presets and only recommend locally available Po
     "combinedStatMultiplier",
     "combinedStatValue",
     "normalizeCandidatePool",
+    "teamIdentity",
     "teamCandidatesForRecommendation",
     "requiredTeamSize",
   ], { DATA: data, species: (id) => data.species[id], settings: { candidatePool: { enabled: false, minPower: 500, uids: [] } } });
@@ -117,6 +128,44 @@ test("new regions accept missing presets and only recommend locally available Po
   assert.equal(requiredTeamSize({ ...save, link: { ...save.link, side: "from" } }), 2);
   assert.ok(source.includes("const candidates = teamCandidatesForRecommendation(save);"));
   assert.ok(source.includes("const fullTeamSize = requiredTeamSize(save);"));
+});
+
+test("automatic teams never recommend duplicate species or mutually exclusive forms", () => {
+  const { teamIdentity } = sourceFunctions(["teamIdentity"], { species: (id) => data.species[id] });
+  assert.equal(teamIdentity({ id: 25, shiny: false }), teamIdentity({ id: 25, shiny: true }));
+  assert.equal(teamIdentity({ id: 386 }), teamIdentity({ id: 38601 }));
+  assert.notEqual(teamIdentity({ id: 351 }), teamIdentity({ id: 35101 }));
+
+  const { recommendTeam } = sourceFunctions(["recommendTeam"], {
+    DEFAULT_LEVEL_WEIGHT: 0.22,
+    enemyProfiles: () => [],
+    teamCandidatesForRecommendation: (save) => save.mons,
+    teamIdentity,
+    scoreCandidate: (mon) => ({ score: mon.score, reason: String(mon.score) }),
+    species: (id) => data.species[id],
+  });
+  const plan = recommendTeam({
+    team: [],
+    mons: [
+      { uid: "weak-25", id: 25, score: 10 },
+      { uid: "best-25", id: 25, score: 100 },
+      { uid: "form-386", id: 38601, score: 90 },
+      { uid: "base-386", id: 386, score: 80 },
+      ...[1, 2, 3, 4, 5].map((id) => ({ uid: `unique-${id}`, id, score: 70 - id })),
+    ],
+  }, []);
+  assert.equal(plan.mons.length, 6);
+  assert.ok(plan.mons.some((mon) => mon.uid === "best-25"));
+  assert.equal(plan.mons.filter((mon) => mon.id === 25).length, 1);
+  assert.equal(plan.mons.filter((mon) => [386, 38601].includes(mon.id)).length, 1);
+  assert.equal(new Set(plan.mons.map(teamIdentity)).size, plan.mons.length);
+
+  const retryWithoutSeventhSpecies = recommendTeam({
+    team: [],
+    mons: [...plan.mons, { uid: "another-25", id: 25, score: 5 }],
+  }, [], { excludedSignatures: new Set([plan.signature]) });
+  assert.equal(retryWithoutSeventhSpecies.mons.length, 6);
+  assert.equal(retryWithoutSeventhSpecies.signature, plan.signature);
 });
 
 test("Johto finale contains Red's actual six Pokemon", () => {

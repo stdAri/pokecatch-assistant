@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.9.2
+// @version      0.9.3
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.9.2";
+  const VERSION = "0.9.3";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -486,11 +486,13 @@
     const enemies = enemyProfiles(enemyIds);
     const currentFive = new Set(save.teamSets?.list?.[4] || save.team || []);
     const candidates = teamCandidatesForRecommendation(save);
+    const availableIdentities = new Set(candidates.map(teamIdentity));
     const selected = [];
     const details = [];
-    while (selected.length < 6 && selected.length < candidates.length) {
+    while (selected.length < 6 && selected.length < availableIdentities.size) {
+      const selectedIdentities = new Set(selected.map(teamIdentity));
       const ranked = candidates
-        .filter((mon) => !selected.some((item) => item.uid === mon.uid))
+        .filter((mon) => !selectedIdentities.has(teamIdentity(mon)))
         .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel) }))
         .sort((a, b) => b.score - a.score);
       const choice = ranked[0];
@@ -500,13 +502,24 @@
     }
 
     const signature = selected.map((mon) => mon.uid).sort().join("|");
-    if (excludedSignatures.has(signature) && candidates.length > 6) {
+    if (excludedSignatures.has(signature) && availableIdentities.size > 6) {
       const last = selected.pop();
+      details.pop();
+      const selectedIdentities = new Set(selected.map(teamIdentity));
       const replacement = candidates
-        .filter((mon) => !selected.some((item) => item.uid === mon.uid) && mon.uid !== last.uid)
+        .filter((mon) => !selectedIdentities.has(teamIdentity(mon)) && teamIdentity(mon) !== teamIdentity(last))
         .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel) }))
         .sort((a, b) => b.score - a.score)[0];
-      if (replacement) selected.push(replacement.mon);
+      if (replacement) {
+        selected.push(replacement.mon);
+        details.push({
+          uid: replacement.mon.uid,
+          id: replacement.mon.id,
+          name: species(replacement.mon.id)?.n || replacement.mon.id,
+          score: replacement.score,
+          reason: replacement.reason,
+        });
+      }
     }
     return { mons: selected, details, enemyIds, signature: selected.map((mon) => mon.uid).sort().join("|") };
   }
@@ -972,6 +985,11 @@
     return (save?.mons || []).filter((mon) => mon?.uid && mon.level > 0 && isMonAvailableInCurrentRegion(save, mon));
   }
 
+  function teamIdentity(mon) {
+    const singleFormBase = species(mon?.id)?.u;
+    return singleFormBase == null ? "species:" + mon?.id : "single:" + singleFormBase;
+  }
+
   function teamCandidatesForRecommendation(save, config = settings.candidatePool) {
     const pool = normalizeCandidatePool(config);
     if (!pool.enabled) return availableTeamCandidates(save);
@@ -980,7 +998,7 @@
   }
 
   function requiredTeamSize(save) {
-    return Math.min(6, teamCandidatesForRecommendation(save).length);
+    return Math.min(6, new Set(teamCandidatesForRecommendation(save).map(teamIdentity)).size);
   }
 
   function duplicateKeepCandidates(save, regions = settings.duplicateKeepRegions) {
