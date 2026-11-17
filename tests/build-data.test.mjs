@@ -57,20 +57,39 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.9.7", () => {
-  assert.equal(packageJson.version, "0.9.7");
-  assert.ok(source.includes("// @version      0.9.7"));
-  assert.ok(source.includes('const VERSION = "0.9.7"'));
-  assert.ok(viteConfig.includes('version: "0.9.7"'));
+test("userscript and development metadata share version 0.9.8", () => {
+  assert.equal(packageJson.version, "0.9.8");
+  assert.ok(source.includes("// @version      0.9.8"));
+  assert.ok(source.includes('const VERSION = "0.9.8"'));
+  assert.ok(viteConfig.includes('version: "0.9.8"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.9.7-blue"));
+  assert.ok(readme.includes("version-0.9.8-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.7"));
   assert.ok(readme.includes("9f077b29aabec222a36b68822c39161a33c54831/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.9.7"));
+  assert.ok(changelog.includes("## 0.9.8"));
+});
+
+test("compatibility accepts the canonical bundle and the verified Netlify cache bundle", () => {
+  const document = {
+    scripts: [{ src: "https://pokecatch-online.pages.dev/bundle/app.021c85dbba.js" }],
+    querySelector: () => ({}),
+  };
+  const { validateCompatibility } = sourceFunctions(["gameBuild", "validateCompatibility"], {
+    DATA: data,
+    COMPATIBLE_APP_BUILDS: new Set([data.appBuild, "6e45170313"]),
+    document,
+  });
+  assert.equal(validateCompatibility().ok, true);
+  document.scripts = [{ src: "https://pokecatch-online.pages.dev/bundle/app.6e45170313.js" }];
+  assert.equal(validateCompatibility().ok, true);
+  document.scripts = [{ src: "https://pokecatch-online.pages.dev/bundle/app.unknown.js" }];
+  const incompatible = validateCompatibility();
+  assert.equal(incompatible.ok, false);
+  assert.equal(incompatible.expected, "021c85dbba, 6e45170313");
 });
 
 test("new regions accept missing presets and only recommend locally available Pokemon", () => {

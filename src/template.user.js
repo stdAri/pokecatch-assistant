@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.9.7
+// @version      0.9.8
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,8 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.9.7";
+  const VERSION = "0.9.8";
+  const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "6e45170313"]);
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -258,9 +259,9 @@
     const selectors = ["#side-chapter", "#timeline", "#team-sets", "#team-slots", "#bag-panel"];
     const missing = selectors.filter((selector) => !document.querySelector(selector));
     return {
-      ok: build === DATA.appBuild && missing.length === 0,
+      ok: COMPATIBLE_APP_BUILDS.has(build) && missing.length === 0,
       build,
-      expected: DATA.appBuild,
+      expected: [...COMPATIBLE_APP_BUILDS].join(", "),
       missing,
     };
   }

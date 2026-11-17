@@ -4,7 +4,7 @@
 
 - 本地路径：`/Users/young/Project/pokecatch-assistant`
 - 默认分支：`main`
-- 当前版本：`0.9.7`（兼容游戏 `v0.5.05` 热更新 `app.021c85dbba.js`；简体中文语言包仍为 `lang-zh-Hans.e31962e671.js`；不创建标签或 Release）
+- 当前版本：`0.9.8`（以游戏 `v0.5.05` 热更新 `app.021c85dbba.js` 为数据基线，并兼容 Netlify Service Worker 缓存的 `app.6e45170313.js`；简体中文语言包仍为 `lang-zh-Hans.e31962e671.js`；不创建标签或 Release）
 - 首次提交：`939123b feat: initial PokeCatch assistant`
 - GitHub 远端：`git@github.com:stdAri/pokecatch-assistant.git`
 - 许可证：MIT；生成文件包含第三方游戏兼容数据，项目不对 Pokémon 相关名称、素材或第三方数据主张权利。
@@ -28,7 +28,7 @@
 
 ## 3. 已确认的游戏环境
 
-- 游戏前端：`app.021c85dbba.js`
+- 游戏前端：当前数据基线 `app.021c85dbba.js`；已验证兼容 Netlify 缓存包 `app.6e45170313.js`
 - 简体中文语言包：`lang-zh-Hans.e31962e671.js`
 - 存档键：`gachamon-save-v1`
 - 当前游戏提供5个队伍预设，第五队索引为 `4`
