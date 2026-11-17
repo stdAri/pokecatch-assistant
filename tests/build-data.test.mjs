@@ -57,20 +57,20 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.9.3", () => {
-  assert.equal(packageJson.version, "0.9.3");
-  assert.ok(source.includes("// @version      0.9.3"));
-  assert.ok(source.includes('const VERSION = "0.9.3"'));
-  assert.ok(viteConfig.includes('version: "0.9.3"'));
+test("userscript and development metadata share version 0.9.4", () => {
+  assert.equal(packageJson.version, "0.9.4");
+  assert.ok(source.includes("// @version      0.9.4"));
+  assert.ok(source.includes('const VERSION = "0.9.4"'));
+  assert.ok(viteConfig.includes('version: "0.9.4"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.9.3-blue"));
-  assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.3"));
-  assert.ok(readme.includes("6832daeb0b988e3033db49cc3d2711fb9248e2e6/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.9.3"));
+  assert.ok(readme.includes("version-0.9.4-blue"));
+  assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.4"));
+  assert.ok(readme.includes("main/dist/pokecatch-assistant.user.js"));
+  assert.ok(changelog.includes("## 0.9.4"));
 });
 
 test("new regions accept missing presets and only recommend locally available Pokemon", () => {
@@ -831,6 +831,17 @@ test("task status remains visible in the native bar while settings use a dismiss
   assert.ok(source.includes('data-status="mode"'));
   assert.ok(source.includes('data-status="target"'));
   assert.ok(source.includes('data-status="attempts"'));
+});
+
+test("docked settings attach below the game top bar instead of centering", () => {
+  assert.ok(source.includes("align-items:flex-start"));
+  assert.ok(source.includes("padding:var(--pca-dock-top,12px)"));
+  assert.equal(source.includes("align-items:center;justify-content:center;padding:24px"), false);
+  const dock = sourceFunctionText("applyDockPosition");
+  assert.ok(dock.includes('document.querySelector(".topbar")'));
+  assert.ok(dock.includes('panel.querySelector(".pca-native-bar")'));
+  assert.ok(dock.includes('panel.style.setProperty("--pca-dock-top"'));
+  assert.ok(source.includes("settings.floating ? applyFloatPosition(panel) : applyDockPosition(panel)"));
 });
 
 test("native assistant can opt into a draggable resizable floating window and remember its geometry", () => {

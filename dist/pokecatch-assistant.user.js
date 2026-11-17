@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.9.3
+// @version      0.9.4
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.9.3";
+  const VERSION = "0.9.4";
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -2378,7 +2378,7 @@
       #${PANEL_ID}{width:min(100%,620px);min-width:0;color:#eef2ff;font:13px/1.45 system-ui,-apple-system,"PingFang SC",sans-serif}
       #${PANEL_ID} *{box-sizing:border-box}#${PANEL_ID} button,#${PANEL_ID} select,#${PANEL_ID} input{font:inherit}
       .pca-native-bar{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto auto;align-items:center;gap:8px;width:100%;height:44px;padding:0 10px;border:2px solid var(--line,#343b56);border-radius:var(--r-md,12px);background:var(--panel-2,#20253a);color:var(--text,#eef2ff);cursor:pointer;transition:border-color .15s,background .15s}.pca-native-bar:hover{border-color:var(--line-hover,#536080);background:var(--panel-3,#2b3350)}.pca-native-brand{font-weight:700;white-space:nowrap}.pca-native-item{min-width:0;color:var(--muted,#8fa0c6);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pca-native-item b{color:var(--text,#eef2ff);margin-left:4px}.pca-native-open{color:var(--muted,#8fa0c6);font-size:12px;white-space:nowrap}
-      .pca-modal{display:none;position:fixed;inset:0;z-index:2147483646;align-items:center;justify-content:center;padding:24px}.pca-modal-shade{position:absolute;inset:0;border:0;background:#050711b8;cursor:default}.pca-dialog{position:relative;width:min(620px,calc(100vw - 32px));max-height:min(82vh,760px);display:flex;flex-direction:column;background:#151827;border:1px solid #46506c;border-radius:14px;box-shadow:0 20px 60px #000b;overflow:hidden}#${PANEL_ID}:not(.collapsed) .pca-modal{display:flex}
+      .pca-modal{display:none;position:fixed;inset:0;z-index:2147483646;align-items:flex-start;justify-content:center;padding:var(--pca-dock-top,12px) 24px 12px}.pca-modal-shade{position:absolute;inset:0;border:0;background:#050711b8;cursor:default}.pca-dialog{position:relative;width:min(620px,calc(100vw - 32px));max-height:min(calc(100vh - var(--pca-dock-top,12px) - 12px),760px);display:flex;flex-direction:column;background:#151827;border:1px solid #46506c;border-radius:14px;box-shadow:0 20px 60px #000b;overflow:hidden}#${PANEL_ID}:not(.collapsed) .pca-modal{display:flex}
       #${PANEL_ID}.floating .pca-modal{pointer-events:none;padding:0}#${PANEL_ID}.floating .pca-modal-shade{display:none}#${PANEL_ID}.floating .pca-dialog{position:fixed;pointer-events:auto;resize:both;min-width:min(360px,calc(100vw - 24px));min-height:min(240px,calc(100vh - 24px));max-width:calc(100vw - 24px);max-height:calc(100vh - 24px)}#${PANEL_ID}.floating .pca-head{cursor:move;touch-action:none}
       .pca-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#20253a;border-bottom:1px solid #343b56;user-select:none}.pca-head b{flex:1}.pca-head button{cursor:pointer}.pca-ver{color:#8ea0ca;font-size:11px}
       .pca-body{overflow:auto;min-height:0}.pca-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px;padding:8px 12px;background:#181d2d;border-bottom:1px solid #343b56}.pca-summary span{color:#8fa0c6;min-width:0}.pca-summary b{color:#eef2ff;margin-left:5px}.pca-summary-main{display:contents}.pca-summary-extra{display:contents}
@@ -2397,7 +2397,7 @@
       .pca-region-list{flex-wrap:wrap}
       #${PANEL_ID}.training-open .pca-dialog{width:min(780px,calc(100vw - 32px))}.pca-training-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:5px;max-height:38vh;overflow:auto;margin:8px 0}.pca-training-mon{display:flex;align-items:flex-start;gap:6px;padding:7px;background:#111827;border:1px solid #3a4560;border-radius:8px;cursor:pointer}.pca-training-mon:has(input:checked){border-color:#75a2ff;background:#243556}.pca-training-mon.unavailable{opacity:.65}.pca-training-mon small{display:block;color:#a4b3d1;font-size:11px;margin-top:3px}.pca-training-min{width:82px}
       @media(max-width:900px){.pca-native-brand{display:none}.pca-native-bar{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto}}
-      @media(max-width:640px){.topbar .tb-sep.pca-host{flex:0 1 auto}.pca-native-bar{grid-template-columns:minmax(0,1fr) auto;max-width:210px}.pca-native-target,.pca-native-progress{display:none}.pca-native-open{font-size:0}.pca-native-open:after{content:"⚙";font-size:16px}.pca-modal{padding:10px}.pca-dialog,#${PANEL_ID}.training-open .pca-dialog{width:calc(100vw - 20px);max-height:calc(100vh - 20px)}}
+      @media(max-width:640px){.topbar .tb-sep.pca-host{flex:0 1 auto}.pca-native-bar{grid-template-columns:minmax(0,1fr) auto;max-width:210px}.pca-native-target,.pca-native-progress{display:none}.pca-native-open{font-size:0}.pca-native-open:after{content:"⚙";font-size:16px}.pca-modal{padding:var(--pca-dock-top,10px) 10px 10px}.pca-dialog,#${PANEL_ID}.training-open .pca-dialog{width:calc(100vw - 20px);max-height:calc(100vh - var(--pca-dock-top,10px) - 10px)}}
     `;
     document.head.append(style);
 
@@ -2485,6 +2485,7 @@
     }
     host.classList.add("pca-host");
     host.append(panel);
+    applyDockPosition(panel);
     applyFloatPosition(panel);
     enableFloatDragging(panel);
     observeFloatSize(panel);
@@ -2503,7 +2504,7 @@
         saveSettings();
         panel.classList.toggle("collapsed", settings.collapsed);
         panel.querySelector(".pca-native-bar")?.setAttribute("aria-expanded", String(!settings.collapsed));
-        if (!settings.collapsed && settings.floating) requestAnimationFrame(() => applyFloatPosition(panel));
+        if (!settings.collapsed) requestAnimationFrame(() => settings.floating ? applyFloatPosition(panel) : applyDockPosition(panel));
       } else if (action === "float") {
         const dialog = panel.querySelector(".pca-dialog");
         if (!settings.floating && dialog) {
@@ -2516,6 +2517,7 @@
         panel.classList.toggle("floating", settings.floating);
         dialog?.setAttribute("aria-modal", String(!settings.floating));
         event.target.textContent = settings.floating ? t("dockWindow") : t("floatWindow");
+        if (!settings.floating) applyDockPosition(panel);
         applyFloatPosition(panel);
       } else if (action === "push") startMode("push");
       else if (action === "collect") startMode("collect");
@@ -2624,7 +2626,9 @@
     if (!runtime.floatResizeBound) {
       window.addEventListener("resize", () => {
         const current = document.getElementById(PANEL_ID);
-        if (current?.classList.contains("floating")) applyFloatPosition(current);
+        if (!current) return;
+        if (current.classList.contains("floating")) applyFloatPosition(current);
+        else applyDockPosition(current);
       });
       runtime.floatResizeBound = true;
     }
@@ -2647,6 +2651,18 @@
     });
     panel.querySelectorAll("[data-tabpanel]").forEach((tabpanel) => tabpanel.classList.toggle("active", tabpanel.dataset.tabpanel === tab));
     if (settings.floating) requestAnimationFrame(() => applyFloatPosition(panel));
+  }
+
+  function applyDockPosition(panel) {
+    if (settings.floating) return;
+    const topbar = document.querySelector(".topbar");
+    const nativeBar = panel.querySelector(".pca-native-bar");
+    const anchorBottom = Math.max(
+      topbar?.getBoundingClientRect().bottom || 0,
+      nativeBar?.getBoundingClientRect().bottom || 0,
+    );
+    const top = Math.max(8, Math.min(Math.round(anchorBottom + 8), window.innerHeight - 120));
+    panel.style.setProperty("--pca-dock-top", `${top}px`);
   }
 
   function applyFloatPosition(panel) {
