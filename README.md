@@ -8,7 +8,7 @@
 
 <p>
   <a href="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="CHANGELOG.md"><img alt="Version 0.9.8" src="https://img.shields.io/badge/version-0.9.8-blue"></a>
+  <a href="CHANGELOG.md"><img alt="Version 0.10.0" src="https://img.shields.io/badge/version-0.10.0-blue"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="Tampermonkey userscript" src="https://img.shields.io/badge/Tampermonkey-userscript-00485b?logo=tampermonkey">
   <img alt="Simplified Chinese and English" src="https://img.shields.io/badge/UI-简体中文%20%7C%20English-7c3aed">
@@ -39,7 +39,7 @@
 | --- | --- | --- |
 | ✨ 每日异色团体战 | 每天优先完成可用团体战 | 调用游戏原生“优化”生成2人队，两个盟友槽依次选择列表第一项；完成后恢复原任务，不改第五队 |
 | 🗺️ 自动推图 | 从当前地区剧情前沿持续推进 | 根据 Boss 与已观察敌人配队；等级不足时练级，排除等级因素后连续失败会更换组合 |
-| 📚 全图鉴收集 | 自动寻找并捕获缺失目标 | 支持当前地区、全部已解锁地区或自定义地区；显示最多5个待抓目标，必要时只推进到下一次解锁 |
+| 📚 全图鉴收集 | 自动寻找并捕获缺失目标 | 支持普通路线、特殊地点及洛托姆条件静态事件；显示最多5个待抓目标，必要时只推进到下一次解锁 |
 | 🐾 神兽追踪 | 实时追踪雷公、炎帝、水君 | 支持仅神兽或普通+神兽协同；捕获失败立即重置路线，目标消失后确认结果并重新规划 |
 | ⚔️ 智能配队 | 为推图、收集和神兽任务生成阵容 | 综合属性克制、种族能力、已学招式、等级与长期培养价值；神兽队伍强优先选择 Lv.90+ |
 
@@ -55,7 +55,7 @@
 | ♻️ 重复宝可梦保留 | 按地区逐图鉴编号开启或关闭“保留重复”，遵循游戏的进化家族共享规则 |
 | 🍓 果子管理 | 独立设置战斗果子开关和最低保留量，并按游戏时钟自动续用已启用的增益 |
 | 🪟 双语界面 | 简体中文 / English，可跟随游戏语言；含六个标签页、顶部状态栏和可拖动缩放的浮动窗口 |
-| 🩺 诊断与保护 | 记录任务、目标、位置和日志；游戏版本、存档结构或关键页面不兼容时安全暂停 |
+| 🩺 诊断与保护 | 记录任务、目标、位置和日志；未知游戏版本会警告，存档结构或关键页面不兼容时安全暂停 |
 
 ### 🎯 四种自动任务
 
@@ -75,7 +75,7 @@
 3. 在 Tampermonkey 安装页面检查脚本名称与权限，然后保存。
 4. 刷新 Poke'Catch；游戏顶部状态栏会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前已推送版本的固定安装地址：[安装 PokeCatch 助手 v0.9.8](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/ba5cffeabb31752799c21ea276ce82e1ebfdd93c/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.9.8 实现提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.10.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js)。实现提交后会将该地址固定到不可变提交；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
 
 如果浏览器没有自动打开安装页，也可以在 Tampermonkey 中新建脚本，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
@@ -87,7 +87,7 @@
 - 只通过游戏页面中的正常按钮、筛选和拖拽执行操作。
 - 不替换随机数，不伪造捕获结果，不访问身份令牌，不调用云端存档接口。
 - 自动操作采用随机节流；这用于降低连续操作频率，不代表绕过游戏平台规则。
-- 游戏资源版本、关键 DOM 或存档结构不匹配时安全暂停并显示诊断。
+- 未知游戏资源版本会显示警告并继续运行；关键 DOM 或存档结构不兼容时安全暂停并显示诊断。
 
 ### 🧑‍💻 开发与验证
 
@@ -151,7 +151,7 @@ npm run dev
 | ♻️ Duplicate retention | Enables or disables Keep duplicates by region while respecting the game's shared evolution-family setting |
 | 🍓 Berry automation | Provides per-berry switches and reserves, and renews enabled battle buffs using the game clock |
 | 🪟 Bilingual interface | Simplified Chinese / English, six tabs, a native top-bar summary, and an optional draggable, resizable floating window |
-| 🩺 Diagnostics and safeguards | Shows mode, target, location, logs, and pauses safely when the game build, save structure, or critical page controls are incompatible |
+| 🩺 Diagnostics and safeguards | Warns on an unverified game build, and pauses safely when the save structure or critical page controls are incompatible |
 
 ### 🎯 Automation modes
 
@@ -169,11 +169,11 @@ npm run dev
 3. Review the script name and permissions, then confirm installation.
 4. Refresh Poke'Catch; “PokeCatch Assistant” appears in the game's top bar.
 
-For an immutable fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.9.8](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/ba5cffeabb31752799c21ea276ce82e1ebfdd93c/dist/pokecatch-assistant.user.js). Automatic updates still use the script's `@updateURL`.
+For a fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.10.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js). This link will be pinned to the immutable implementation commit after it is created. Automatic updates still use the script's `@updateURL`.
 
 ### 🛡️ Safety
 
-The userscript reads `gachamon-save-v1` but never writes or deletes it directly. It uses normal page controls, does not alter randomness, forge capture results, access authentication tokens, or call cloud-save APIs, and pauses when the supported game build or critical interface no longer matches.
+The userscript reads `gachamon-save-v1` but never writes or deletes it directly. It uses normal page controls, does not alter randomness, forge capture results, access authentication tokens, or call cloud-save APIs. An unverified game build produces a warning; incompatible save structures or critical controls still pause safely.
 
 ### 🧑‍💻 Development
 

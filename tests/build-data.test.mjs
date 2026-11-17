@@ -57,23 +57,22 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.species[4].t, ["fire"]);
 });
 
-test("userscript and development metadata share version 0.9.8", () => {
-  assert.equal(packageJson.version, "0.9.8");
-  assert.ok(source.includes("// @version      0.9.8"));
-  assert.ok(source.includes('const VERSION = "0.9.8"'));
-  assert.ok(viteConfig.includes('version: "0.9.8"'));
+test("userscript and development metadata share version 0.10.0", () => {
+  assert.equal(packageJson.version, "0.10.0");
+  assert.ok(source.includes("// @version      0.10.0"));
+  assert.ok(source.includes('const VERSION = "0.10.0"'));
+  assert.ok(viteConfig.includes('version: "0.10.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.9.8-blue"));
-  assert.ok(readme.includes("安装 PokeCatch 助手 v0.9.8"));
-  assert.ok(readme.includes("ba5cffeabb31752799c21ea276ce82e1ebfdd93c/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.9.8"));
+  assert.ok(readme.includes("version-0.10.0-blue"));
+  assert.ok(readme.includes("安装 PokeCatch 助手 v0.10.0"));
+  assert.ok(changelog.includes("## 0.10.0"));
 });
 
-test("compatibility accepts the canonical bundle and the verified Netlify cache bundle", () => {
+test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
   const document = {
     scripts: [{ src: "https://pokecatch-online.pages.dev/bundle/app.021c85dbba.js" }],
     querySelector: () => ({}),
@@ -83,13 +82,82 @@ test("compatibility accepts the canonical bundle and the verified Netlify cache 
     COMPATIBLE_APP_BUILDS: new Set([data.appBuild, "6e45170313"]),
     document,
   });
-  assert.equal(validateCompatibility().ok, true);
+  assert.deepEqual(
+    { ok: validateCompatibility().ok, verified: validateCompatibility().verified },
+    { ok: true, verified: true },
+  );
   document.scripts = [{ src: "https://pokecatch-online.pages.dev/bundle/app.6e45170313.js" }];
-  assert.equal(validateCompatibility().ok, true);
+  assert.equal(validateCompatibility().verified, true);
   document.scripts = [{ src: "https://pokecatch-online.pages.dev/bundle/app.unknown.js" }];
+  const unknown = validateCompatibility();
+  assert.equal(unknown.ok, true);
+  assert.equal(unknown.verified, false);
+  assert.equal(unknown.expected, "021c85dbba, 6e45170313");
+  document.querySelector = (selector) => selector === "#timeline" ? null : {};
   const incompatible = validateCompatibility();
   assert.equal(incompatible.ok, false);
-  assert.equal(incompatible.expected, "021c85dbba, 6e45170313");
+  assert.deepEqual(Array.from(incompatible.missing), ["#timeline"]);
+});
+
+test("league chapters use the shared Pokemon League map entry", () => {
+  const league = data.chapters.filter((item) => item.league);
+  assert.ok(league.some((item) => item.index === 9));
+  assert.ok(league.some((item) => item.index === 64));
+  assert.ok(league.some((item) => item.index === 82));
+  assert.equal(data.chapters[8].league, false);
+  const switchChapter = source.slice(
+    source.indexOf("async function switchChapter"),
+    source.indexOf("async function enterSpecialZone"),
+  );
+  assert.ok(switchChapter.includes('const mapChapter = targetChapter.league ? "L" : chapterIndex;'));
+  assert.ok(switchChapter.includes('`.mp-row[data-ch="${mapChapter}"]`'));
+  assert.ok(switchChapter.includes('`.mp-go[data-go="${mapChapter}"]`'));
+  assert.ok(switchChapter.includes("readSave().adv.chapter === chapterIndex"));
+});
+
+test("Rotom forms are extracted as conditional static encounters", () => {
+  const encounters = data.chapters.flatMap((item) => (
+    (item.staticEncounters || []).map((encounter) => ({ chapter: item.index, ...encounter }))
+  ));
+  const rotom = encounters.filter((item) => item.id >= 47901 && item.id <= 47905);
+  assert.deepEqual(rotom.map((item) => item.id).sort((a, b) => a - b), [47901, 47902, 47903, 47904, 47905]);
+  assert.ok(rotom.every((item) => item.chance === 0.1 && item.caught.includes(479)));
+  assert.deepEqual(rotom.find((item) => item.id === 47901).skies, ["ash", "sun"]);
+  assert.deepEqual(rotom.find((item) => item.id === 47902).skies, ["rain", "storm"]);
+  assert.equal(rotom.find((item) => item.id === 47903).night, true);
+  assert.deepEqual(rotom.find((item) => item.id === 47904).skies, ["storm"]);
+  assert.equal(rotom.find((item) => item.id === 47905).day, true);
+  assert.ok(source.includes("for (const encounter of item.staticEncounters || [])"));
+  assert.ok(source.includes('await exclusive("静态事件本轮未生成"'));
+});
+
+test("Rotom static plans honor ownership, daytime, and route weather", () => {
+  const settings = { regionScope: "all", customRegions: [] };
+  const helpers = sourceFunctions([
+    "chapter", "currentRegion", "isCaught", "habitatForRoute", "daytimePhaseAt", "weatherHash",
+    "routeClimate", "chapterClimate", "generatedWeatherForRoute", "currentWeatherForRoute",
+    "habitatWeights", "routeWeights", "unlockedRegions", "collectionScopeRegions", "availableChapters",
+    "plansForSpecies",
+  ], { DATA: data, settings });
+  const save = {
+    adv: { chapter: 65, unlocked: 65, gifts: {} },
+    dex: { 479: { caught: 1 } },
+    roam: { at: {} },
+  };
+  const start = new Date(2026, 10, 17, 0, 0, 0).getTime();
+  const available = new Set();
+  for (let hour = 0; hour < 24 * 14; hour += 1) {
+    const at = start + hour * data.weather.slotMs;
+    for (const id of [47901, 47902, 47903, 47904, 47905]) {
+      if (helpers.plansForSpecies(save, id, at).some((plan) => plan.static)) available.add(id);
+    }
+  }
+  assert.deepEqual([...available].sort((a, b) => a - b), [47901, 47902, 47903, 47904, 47905]);
+  assert.equal(helpers.plansForSpecies({ ...save, dex: {} }, 47905, start + 12 * data.weather.slotMs).length, 0);
+  const mowDay = helpers.plansForSpecies(save, 47905, start + 12 * data.weather.slotMs)[0];
+  assert.equal(mowDay.static, true);
+  assert.equal(mowDay.chapter, 52);
+  assert.equal(helpers.plansForSpecies(save, 47905, start + 22 * data.weather.slotMs).length, 0);
 });
 
 test("new regions accept missing presets and only recommend locally available Pokemon", () => {
@@ -479,6 +547,24 @@ test("collection route boundary follows saved nodes and stops after Route 34", (
   assert.ok(source.includes('timelinePlanStatus(save, runtime.targetPlan)'));
 });
 
+test("static collection retries generation and stops only after its matching event node", () => {
+  const savedStaticPlanStatus = sourceFunction("savedStaticPlanStatus");
+  const plan = { speciesId: 47905 };
+  const absent = savedStaticPlanStatus({ adv: { nodes: [{ type: "wild", id: 47905 }], node: 0 } }, plan);
+  assert.equal(absent.target, -1);
+  const generated = savedStaticPlanStatus({
+    adv: { nodes: [{ type: "wild" }, { type: "static", id: 47905 }, { type: "trainer" }], node: 1 },
+  }, plan);
+  assert.equal(generated.target, 1);
+  assert.equal(generated.current, 1);
+  const passed = savedStaticPlanStatus({
+    adv: { nodes: [{ type: "wild" }, { type: "static", id: 47905 }, { type: "trainer" }], node: 2 },
+  }, plan);
+  assert.ok(passed.current > passed.target);
+  assert.ok(source.includes('if (runtime.targetPlan.static)'));
+  assert.ok(source.includes('await exclusive("静态事件捕获未成功"'));
+});
+
 test("userscript never writes the game save key", () => {
   assert.equal(source.includes("localStorage.setItem(SAVE_KEY"), false);
   assert.equal(source.includes("localStorage.removeItem(SAVE_KEY"), false);
@@ -854,7 +940,7 @@ test("automated page actions use randomized conservative pacing", () => {
   assert.ok(source.includes("afterMin = 450"));
   assert.ok(source.includes("afterMax = 1_100"));
   assert.ok(source.includes("runtime.lastAutomatedActionAt"));
-  assert.ok(source.includes('await pacedClick(go, `章节${chapterIndex}进入按钮`)'));
+  assert.ok(source.includes("await pacedClick(go, targetChapter.league"));
   assert.ok(source.includes("await pacedClick(preset"));
   assert.ok(source.includes("await pacedClick(button, berryLabel(choice.info))"));
   assert.equal((source.match(/\.click\(\)/g) || []).length, 1, "automated clicks must go through pacedClick");
@@ -867,7 +953,8 @@ test("cross-region chapter switching selects the target region before its chapte
     source.indexOf("async function switchChapter"),
     source.indexOf("async function enterSpecialZone"),
   );
-  assert.ok(switchChapter.includes("const targetRegion = chapter(chapterIndex)?.region;"));
+  assert.ok(switchChapter.includes("const targetChapter = chapter(chapterIndex);"));
+  assert.ok(switchChapter.includes("const targetRegion = targetChapter?.region;"));
   assert.ok(switchChapter.includes('`.rg.open[data-rg="${targetRegion}"]`'));
   assert.ok(switchChapter.indexOf("await pacedClick(regionButton") < switchChapter.indexOf("const row = await waitFor"));
 });

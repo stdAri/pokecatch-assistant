@@ -128,6 +128,7 @@ const compactChapters = chapters.map((chapter, index) => {
     name: translate(chapter.name),
     sourceName: chapter.name,
     region: inheritedRegion,
+    league: !!chapter.league,
     day: !!chapter.day,
     weather: chapter.weather,
     ace: chapter.ace || boss?.team?.reduce((max, [, level]) => Math.max(max, level), 0) || 1,
@@ -151,6 +152,27 @@ const compactChapters = chapters.map((chapter, index) => {
         climate: step.climate || null,
       }))
       .filter((step) => step.wild > 0),
+    staticEncounters: steps
+      .map((step, stepIndex) => ({
+        stepIndex,
+        kind: step.kind,
+        id: step.id,
+        name: translate(step.name),
+        sourceName: step.name,
+        bg: step.bg || null,
+        indoor: step.indoor,
+        climate: step.climate || null,
+        weather: step.weather,
+        skies: step.skies || [],
+        day: !!step.day,
+        night: !!step.night,
+        chance: step.chance || 1,
+        caught: step.caught || [],
+        once: step.once || null,
+        level: step.level || null,
+        rate: step.rate || null,
+      }))
+      .filter((step) => step.kind === "static" && step.id != null && step.chance < 1 && step.caught.length),
     boss: boss
       ? {
           name: translate(boss.leader || boss.trainer || boss.name),

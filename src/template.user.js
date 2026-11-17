@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.9.8
+// @version      0.10.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.9.8";
+  const VERSION = "0.10.0";
   const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "6e45170313"]);
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
@@ -258,8 +258,10 @@
     const build = gameBuild();
     const selectors = ["#side-chapter", "#timeline", "#team-sets", "#team-slots", "#bag-panel"];
     const missing = selectors.filter((selector) => !document.querySelector(selector));
+    const verified = COMPATIBLE_APP_BUILDS.has(build);
     return {
-      ok: COMPATIBLE_APP_BUILDS.has(build) && missing.length === 0,
+      ok: missing.length === 0,
+      verified,
       build,
       expected: [...COMPATIBLE_APP_BUILDS].join(", "),
       missing,
@@ -741,31 +743,33 @@
 
   async function switchChapter(chapterIndex, { settle = true } = {}) {
     runtime.expectedChapter = chapterIndex;
-    const targetRegion = chapter(chapterIndex)?.region;
+    const targetChapter = chapter(chapterIndex);
+    const targetRegion = targetChapter?.region;
     if (!targetRegion) throw new Error(`找不到章节${chapterIndex}的数据`);
+    const mapChapter = targetChapter.league ? "L" : chapterIndex;
     await openScreen("adventure");
-    let visibleRow = document.querySelector(`.mp-row[data-ch="${chapterIndex}"]`);
+    let visibleRow = document.querySelector(`.mp-row[data-ch="${mapChapter}"]`);
     if (!visibleRow) {
       await pacedClick(document.querySelector("#side-chapter"), "章节列表按钮");
-      visibleRow = document.querySelector(`.mp-row[data-ch="${chapterIndex}"]`);
-      if (!visibleRow) {
-        const regionButton = await waitFor(
-          () => document.querySelector(`.rg.open[data-rg="${targetRegion}"]`),
-          { label: `${t(targetRegion)}地区标签` },
-        );
-        await pacedClick(regionButton, `${t(targetRegion)}地区标签`);
-      }
+      visibleRow = document.querySelector(`.mp-row[data-ch="${mapChapter}"]`);
+    }
+    if (targetChapter.league || !visibleRow) {
+      const regionButton = await waitFor(
+        () => document.querySelector(`.rg.open[data-rg="${targetRegion}"]`),
+        { label: `${t(targetRegion)}地区标签` },
+      );
+      await pacedClick(regionButton, `${t(targetRegion)}地区标签`);
     }
     const row = await waitFor(
-      () => document.querySelector(`.mp-row[data-ch="${chapterIndex}"]`),
-      { label: `章节${chapterIndex}列表项` },
+      () => document.querySelector(`.mp-row[data-ch="${mapChapter}"]`),
+      { label: targetChapter.league ? `${t(targetRegion)}宝可梦联盟列表项` : `章节${chapterIndex}列表项` },
     );
-    await pacedClick(row, `章节${chapterIndex}列表项`);
+    await pacedClick(row, targetChapter.league ? `${t(targetRegion)}宝可梦联盟列表项` : `章节${chapterIndex}列表项`);
     const go = await waitFor(
-      () => document.querySelector(`.mp-go[data-go="${chapterIndex}"]`),
-      { label: `章节${chapterIndex}进入按钮` },
+      () => document.querySelector(`.mp-go[data-go="${mapChapter}"]`),
+      { label: targetChapter.league ? `${t(targetRegion)}宝可梦联盟进入按钮` : `章节${chapterIndex}进入按钮` },
     );
-    await pacedClick(go, `章节${chapterIndex}进入按钮`);
+    await pacedClick(go, targetChapter.league ? `${t(targetRegion)}宝可梦联盟进入按钮` : `章节${chapterIndex}进入按钮`);
     await waitFor(() => readSave().adv.chapter === chapterIndex, { timeout: 10_000, label: `进入章节${chapterIndex}` });
     if (settle) await jitter(500, 900);
     runtime.expectedChapter = null;
@@ -1283,6 +1287,34 @@
           weatherLimited,
         });
       }
+      for (const encounter of item.staticEncounters || []) {
+        if (Number(encounter.id) !== Number(speciesId)) continue;
+        if (encounter.once && save.adv?.gifts?.[encounter.once]) continue;
+        if ((encounter.caught || []).some((id) => !isCaught(save, id))) continue;
+        const phase = daytimePhaseAt(timestamp, Boolean(item.day && !(save.adv.unlocked > item.index)));
+        if (encounter.night && phase !== "night") continue;
+        if (encounter.day && phase === "night") continue;
+        const weather = currentWeatherForRoute(save, item, encounter, timestamp, phase);
+        if (encounter.skies?.length && !encounter.skies.includes(weather)) continue;
+        const prefixCost = encounter.stepIndex + 1;
+        const chance = Number(encounter.chance || 1);
+        plans.push({
+          speciesId: Number(speciesId),
+          chapter: item.index,
+          chapterName: item.name,
+          zone: encounter.name,
+          sourceZone: encounter.sourceName,
+          static: true,
+          staticOnce: encounter.once,
+          prefixCost,
+          weight: chance,
+          score: chance / prefixCost,
+          phase,
+          weather,
+          weatherLimited: Boolean(encounter.night || encounter.day || encounter.skies?.length),
+          level: encounter.level || item.ace,
+        });
+      }
     }
     return plans.sort((a, b) => b.score - a.score || a.prefixCost - b.prefixCost);
   }
@@ -1404,6 +1436,7 @@
       for (const route of item.routes) {
         if (routeCanContainSpecies(route, speciesId)) return true;
       }
+      if ((item.staticEncounters || []).some((encounter) => Number(encounter.id) === Number(speciesId))) return true;
     }
     return false;
   }
@@ -1411,7 +1444,8 @@
   function storyLockedChapterForSpecies(save, speciesId) {
     return chaptersInCollectionScope(save, { includeStoryLocked: true })
       .filter((item) => item.index > save.adv.unlocked)
-      .find((item) => item.routes.some((route) => routeCanContainSpecies(route, speciesId))) || null;
+      .find((item) => item.routes.some((route) => routeCanContainSpecies(route, speciesId))
+        || (item.staticEncounters || []).some((encounter) => Number(encounter.id) === Number(speciesId))) || null;
   }
 
   function conditionContainsKind(condition, kind) {
@@ -1446,7 +1480,10 @@
       if (frontier.index === final.index && finalBadge && save.adv.badges?.includes(finalBadge)) continue;
 
       const locked = all.filter((item) => item.index > save.adv.unlocked);
-      const targetId = targetIds.find((id) => locked.some((item) => item.routes.some((route) => routeCanContainSpecies(route, id))));
+      const targetId = targetIds.find((id) => locked.some((item) => (
+        item.routes.some((route) => routeCanContainSpecies(route, id))
+        || (item.staticEncounters || []).some((encounter) => Number(encounter.id) === Number(id))
+      )));
       const lockedSpecial = (DATA.specialZones || []).find((item) => (
         item.region === region && !isCaught(save, item.id)
         && !specialTargetStatus(save, item.id)?.open && specialNeedsStoryUnlock(save, item)
@@ -1642,6 +1679,16 @@
       relevant,
       wild,
       lastWild: wild.at(-1)?.index ?? -1,
+      current: Number.isInteger(save?.adv?.node) ? save.adv.node : -1,
+    };
+  }
+
+  function savedStaticPlanStatus(save, plan) {
+    const nodes = Array.isArray(save?.adv?.nodes) ? save.adv.nodes : [];
+    const target = nodes.findIndex((node) => node?.type === "static" && Number(node?.id) === Number(plan.speciesId));
+    return {
+      nodes,
+      target,
       current: Number.isInteger(save?.adv?.node) ? save.adv.node : -1,
     };
   }
@@ -1999,6 +2046,19 @@
       return;
     }
 
+    if (runtime.targetPlan.static) {
+      const event = savedStaticPlanStatus(save, runtime.targetPlan);
+      if (event.target < 0) {
+        await exclusive("静态事件本轮未生成", () => resetChapter(runtime.targetPlan));
+        return;
+      }
+      if (event.current > event.target) {
+        runtime.attempts += 1;
+        await exclusive("静态事件捕获未成功", () => resetChapter(runtime.targetPlan));
+      }
+      return;
+    }
+
     const timeline = timelinePlanStatus(save, runtime.targetPlan);
     if (timeline.lastWild < 0) {
       await exclusive("本轮没有有效野生节点", () => resetChapter(runtime.targetPlan));
@@ -2104,12 +2164,11 @@
   function startMode(mode) {
     const compatibility = validateCompatibility();
     if (!compatibility.ok) {
-      diagnostic("兼容性检查", new Error(
-        compatibility.build !== compatibility.expected
-          ? `游戏版本${compatibility.build}与助手数据${compatibility.expected}不同`
-          : `缺少页面节点：${compatibility.missing.join(", ")}`,
-      ));
+      diagnostic("兼容性检查", new Error(`缺少页面节点：${compatibility.missing.join(", ")}`));
       return;
+    }
+    if (!compatibility.verified) {
+      log(`游戏版本${compatibility.build}尚未验证；关键页面结构正常，继续运行并保留结构安全检查`);
     }
     runtime.mode = mode;
     runtime.pushRegion = mode === "push" ? currentRegion(readSave()) : null;
