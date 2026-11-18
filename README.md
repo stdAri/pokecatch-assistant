@@ -40,7 +40,7 @@
 | ✨ 每日异色团体战 | 每天优先完成可用团体战 | 调用游戏原生“优化”生成2人队，两个盟友槽依次选择列表第一项；完成后恢复原任务，不改第五队 |
 | 🗺️ 自动推图 | 从当前地区剧情前沿持续推进 | 根据 Boss 与已观察敌人配队；等级不足时练级，排除等级因素后连续失败会更换组合 |
 | 📚 全图鉴收集 | 自动寻找并捕获缺失目标 | 支持普通路线、特殊地点及洛托姆条件静态事件；显示最多5个待抓目标，必要时只推进到下一次解锁 |
-| 🐾 神兽追踪 | 实时追踪雷公、炎帝、水君 | 支持仅神兽或普通+神兽协同；捕获失败立即重置路线，目标消失后确认结果并重新规划 |
+| 🐾 神兽收集 | 按所选地区追踪徘徊神兽并挑战已开放的固定地点 | 支持神兽收集或普通＋神兽协同。徘徊目标优先，地点受限时显示缺少的条件 |
 | ⚔️ 智能配队 | 为推图、收集和神兽任务生成阵容 | 整队连续模拟道路、训练家、治疗点与道馆，并综合属性、招式、等级和培养价值；神兽队伍强优先选择 Lv.90+ |
 
 ### 🧰 辅助功能
@@ -138,7 +138,7 @@ npm run dev
 | ✨ Daily Shiny raids | Completes the available raid before other automation | Uses the game's native optimizer for the two-Pokémon raid team, chooses the first option for both ally slots, then resumes the previous task without changing Team 5 |
 | 🗺️ Story progression | Continues from the current region's story frontier | Recommends a team for bosses and observed enemies, trains when underleveled, and changes combinations after repeated non-level-related defeats |
 | 📚 Pokédex completion | Finds and catches missing targets | Supports the current region, all unlocked regions, or a custom scope; shows up to five queued targets and advances only to the next required unlock |
-| 🐾 Roaming Legendaries | Tracks Raikou, Entei, and Suicune in real time | Runs alone or alongside ordinary collection, resets routes after failed captures, and replans when a target disappears |
+| 🐾 Legendary collection | Track active roamers and enter open fixed locations in the selected regions | Legendary-only and combined modes are available. Entry conditions appear in the list. |
 | ⚔️ Deterministic team planning | Builds teams for story, collection, and roamers | Considers type matchups, base stats, learned moves, level, and long-term value; roamer teams strongly prefer Lv.90+ members |
 
 ### 🧰 Supporting features
