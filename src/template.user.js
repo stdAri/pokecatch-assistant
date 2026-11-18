@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.14.0
+// @version      0.14.1
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.14.0";
+  const VERSION = "0.14.1";
   const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "7acad22262", "021c85dbba", "6e45170313"]);
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
@@ -967,13 +967,19 @@
     return { ...mon, maxHp, hp: maxHp };
   }
 
+  function battleMatchup(ally, enemy, damageMultiplier) {
+    const outgoing = Math.max(1, bestDamageMove(ally, enemy).damage);
+    const incoming = Math.max(1, bestDamageMove(enemy, ally, { damageMultiplier }).damage);
+    const allyFirst = (battleStats(ally)?.spe || 0) >= (battleStats(enemy)?.spe || 0);
+    return { outgoing, incoming, allyFirst };
+  }
+
   function pickBattleAlly(allies, enemy, damageMultiplier) {
     return allies.filter((ally) => ally.hp > 0).map((ally) => {
-      const outgoing = bestDamageMove(ally, enemy).damage;
-      const incoming = bestDamageMove(enemy, ally, { damageMultiplier }).damage;
-      const speed = battleStats(ally)?.spe >= battleStats(enemy)?.spe ? 0.2 : 0;
-      return { ally, value: outgoing / Math.max(1, incoming) + ally.hp / ally.maxHp * 0.25 + speed };
-    }).sort((a, b) => b.value - a.value || String(a.ally.uid).localeCompare(String(b.ally.uid)))[0]?.ally || null;
+      const matchup = battleMatchup(ally, enemy, damageMultiplier);
+      const speed = matchup.allyFirst ? 0.2 : 0;
+      return { ally, ...matchup, value: matchup.outgoing / matchup.incoming + ally.hp / ally.maxHp * 0.25 + speed };
+    }).sort((a, b) => b.value - a.value || String(a.ally.uid).localeCompare(String(b.ally.uid)))[0] || null;
   }
 
   function simulateDeterministicBattle(allies, encounter) {
@@ -981,21 +987,24 @@
     for (const enemySpec of encounter.enemies || []) {
       const enemy = freshBattleUnit({ id: enemySpec.id, level: enemySpec.level, shiny: false, rank: 0 }, encounter.hpMultiplier || 1);
       const enemyDetail = { id: enemy.id, level: enemy.level, maxHp: enemy.maxHp, turns: 0 };
-      while (enemy.hp > 0 && allies.some((ally) => ally.hp > 0) && enemyDetail.turns < 200) {
-        const ally = pickBattleAlly(allies, enemy, encounter.damageMultiplier || 1);
-        if (!ally) break;
-        const outgoing = Math.max(1, bestDamageMove(ally, enemy).damage);
-        const incoming = Math.max(1, bestDamageMove(enemy, ally, { damageMultiplier: encounter.damageMultiplier || 1 }).damage);
-        const allyFirst = (battleStats(ally)?.spe || 0) >= (battleStats(enemy)?.spe || 0);
-        if (allyFirst) {
-          enemy.hp -= outgoing;
-          if (enemy.hp > 0) ally.hp -= incoming;
-        } else {
-          ally.hp -= incoming;
-          if (ally.hp > 0) enemy.hp -= outgoing;
+      while (enemy.hp > 0 && allies.some((ally) => ally.hp > 0)) {
+        const matchup = pickBattleAlly(allies, enemy, encounter.damageMultiplier || 1);
+        if (!matchup) break;
+        const { ally, outgoing, incoming, allyFirst } = matchup;
+        const turnsToWin = Math.ceil(enemy.hp / outgoing);
+        const enemyHitsBeforeWin = allyFirst ? Math.max(0, turnsToWin - 1) : turnsToWin;
+        const hitsToAllyKo = Math.ceil(ally.hp / incoming);
+        if (enemyHitsBeforeWin < hitsToAllyKo) {
+          ally.hp -= enemyHitsBeforeWin * incoming;
+          enemy.hp = 0;
+          enemyDetail.turns += turnsToWin;
+          continue;
         }
-        enemyDetail.turns += 1;
-        if (ally.hp <= 0 && !detail.allyKos.includes(ally.uid)) detail.allyKos.push(ally.uid);
+        const allyAttacks = allyFirst ? hitsToAllyKo : Math.max(0, hitsToAllyKo - 1);
+        enemy.hp -= allyAttacks * outgoing;
+        ally.hp = 0;
+        enemyDetail.turns += hitsToAllyKo;
+        if (!detail.allyKos.includes(ally.uid)) detail.allyKos.push(ally.uid);
       }
       enemyDetail.remainingHp = Math.max(0, enemy.hp);
       detail.enemies.push(enemyDetail);
@@ -1120,31 +1129,30 @@
       if (identitySeen.has(key)) return false;
       identitySeen.add(key);
       return true;
-    }).slice(0, 24);
+    }).slice(0, 12);
+    const evaluations = new Map();
     const evaluate = (team) => {
       const signature = team.map((mon) => mon.uid).sort().join("|");
       if (excludedSignatures.has(signature)) return { score: -Infinity, result: null };
+      if (evaluations.has(signature)) return evaluations.get(signature);
       const result = simulateChapterTeam(save, team, chapterIndex);
-      return { score: chapterSimulationScore(result), result };
+      const evaluated = { score: chapterSimulationScore(result), result };
+      evaluations.set(signature, evaluated);
+      return evaluated;
     };
     let bestTeam = initial.slice();
     let best = evaluate(bestTeam);
-    for (let pass = 0; pass < 2; pass += 1) {
-      let improved = false;
-      for (let slot = 0; slot < bestTeam.length; slot += 1) {
-        for (const candidate of pool) {
-          if (bestTeam.some((mon, index) => index !== slot && teamIdentity(mon) === teamIdentity(candidate))) continue;
-          const trial = bestTeam.slice();
-          trial[slot] = candidate;
-          const evaluated = evaluate(trial);
-          if (evaluated.score > best.score + 1e-9) {
-            bestTeam = trial;
-            best = evaluated;
-            improved = true;
-          }
+    for (let slot = 0; slot < bestTeam.length; slot += 1) {
+      for (const candidate of pool) {
+        if (bestTeam.some((mon, index) => index !== slot && teamIdentity(mon) === teamIdentity(candidate))) continue;
+        const trial = bestTeam.slice();
+        trial[slot] = candidate;
+        const evaluated = evaluate(trial);
+        if (evaluated.score > best.score + 1e-9) {
+          bestTeam = trial;
+          best = evaluated;
         }
       }
-      if (!improved) break;
     }
     return { team: bestTeam, simulation: best.result };
   }

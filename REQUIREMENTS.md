@@ -4,12 +4,11 @@
 
 - 状态：已确认，可进入迭代开发
 - 首版目标：`v0.1.0 Beta`
-- 当前实现基线：`v0.9.2`（实现提交 `332cfb220af944e6f341f20f3cc4ad78461b6c7e fix: support game build 9637252c96`；兼容游戏 `v0.5.04` 的资源、路线数据、关键页面结构和本地存档结构；不创建标签或 Release）
 - 目标游戏：https://pokecatch-online.netlify.app/
 - 运行方式：Tampermonkey 用户脚本
 - 主要语言：简体中文
 
-本文档记录已经确认的产品需求。实现细节、当前进度和遗留问题参见 `HANDOFF.md`。
+本文档只记录已经确认、长期有效的产品需求。当前版本、实现进度和历史变化以 `package.json`、`README.md`、`CHANGELOG.md`、自动测试和 Git 历史为准。
 
 ## 2. 产品目标
 

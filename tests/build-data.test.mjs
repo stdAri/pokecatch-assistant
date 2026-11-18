@@ -65,21 +65,19 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.battle.gymTrainers.below, [4, 2, 2]);
 });
 
-test("userscript and development metadata share version 0.14.0", () => {
-  assert.equal(packageJson.version, "0.14.0");
-  assert.ok(source.includes("// @version      0.14.0"));
-  assert.ok(source.includes('const VERSION = "0.14.0"'));
-  assert.ok(viteConfig.includes('version: "0.14.0"'));
+test("userscript and development metadata share version 0.14.1", () => {
+  assert.equal(packageJson.version, "0.14.1");
+  assert.ok(source.includes("// @version      0.14.1"));
+  assert.ok(source.includes('const VERSION = "0.14.1"'));
+  assert.ok(viteConfig.includes('version: "0.14.1"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   assert.ok(viteConfig.includes("/;\\r?\\n  const SAVE_KEY/"));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.14.0-blue"));
-  assert.ok(readme.includes("安装 PokeCatch 助手 v0.14.0"));
-  assert.ok(readme.includes("a91a3a27268abfa9fbcf60b7ae78056fc7148c6b/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.14.0"));
+  assert.ok(readme.includes("version-0.14.1-blue"));
+  assert.ok(changelog.includes("## 0.14.1"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -125,7 +123,7 @@ test("Feather Badge scales Winona to the chapter's actual level range", () => {
 
 test("chapter simulation carries damage between battles and honors healing nodes", () => {
   const helpers = sourceFunctions([
-    "freshBattleUnit", "pickBattleAlly", "simulateDeterministicBattle", "simulateChapterTeam",
+    "freshBattleUnit", "battleMatchup", "pickBattleAlly", "simulateDeterministicBattle", "simulateChapterTeam",
   ], {
     battleStats: (mon) => ({ hp: 10, spe: mon.uid ? 20 : 10 }),
     bestDamageMove: (attacker) => ({ damage: attacker.uid ? 6 : 4 }),
@@ -139,7 +137,7 @@ test("chapter simulation carries damage between battles and honors healing nodes
   assert.equal(helpers.simulateChapterTeam(save, team, 0).remainingHp, 0.2);
 
   const healed = sourceFunctions([
-    "freshBattleUnit", "pickBattleAlly", "simulateDeterministicBattle", "simulateChapterTeam",
+    "freshBattleUnit", "battleMatchup", "pickBattleAlly", "simulateDeterministicBattle", "simulateChapterTeam",
   ], {
     battleStats: (mon) => ({ hp: 10, spe: mon.uid ? 20 : 10 }),
     bestDamageMove: (attacker) => ({ damage: attacker.uid ? 6 : 4 }),
@@ -153,11 +151,13 @@ test("chapter simulation carries damage between battles and honors healing nodes
 });
 
 test("whole-team chapter optimization can replace a greedy weak member", () => {
+  let simulations = 0;
   const helpers = sourceFunctions(["chapterSimulationScore", "optimizeChapterTeam"], {
     chapter: () => ({ steps: [{ kind: "route" }] }),
     scoreCandidate: (mon) => ({ score: mon.score }),
     teamIdentity: (mon) => mon.id,
     simulateChapterTeam: (_save, team) => {
+      simulations += 1;
       const clear = team.some((mon) => mon.id === 7);
       return { clear, reachedLeader: clear, completed: clear ? 10 : 8, total: 10, remainingHp: clear ? 0.5 : 0.1 };
     },
@@ -174,6 +174,7 @@ test("whole-team chapter optimization can replace a greedy weak member", () => {
   );
   assert.equal(optimized.simulation.clear, true);
   assert.ok(optimized.team.some((mon) => mon.id === 7));
+  assert.ok(simulations <= 73, `expected a bounded search, received ${simulations} simulations`);
 });
 
 test("battle debugging is opt-in, bounded, exportable, and separate from the game save", () => {

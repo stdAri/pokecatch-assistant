@@ -34,6 +34,8 @@ test("version monitor sends a bounded Bot API compatibility brief", () => {
   assert.match(message, /app=new-app，zh-Hans=new-lang/);
   assert.match(message, /app=old-app，zh-Hans=old-lang/);
   assert.match(message, /git fetch/);
+  assert.doesNotMatch(message, /HANDOFF\.md/);
+  assert.match(message, /REQUIREMENTS\.md、README\.md、CHANGELOG\.md/);
   assert.match(message, /资源哈希变化不等于插件不兼容/);
   assert.match(message, /语义差异/);
   assert.match(message, /只有确认.*实际不兼容时/);
