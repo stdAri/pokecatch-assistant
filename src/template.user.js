@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.13.0
+// @version      0.14.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.13.0";
+  const VERSION = "0.14.0";
   const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "7acad22262", "021c85dbba", "6e45170313"]);
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
@@ -85,6 +85,7 @@
       berryTitle: "战斗增益果子（全部默认关闭）", reserve: "最低保留数量", berryNote: "右侧数字为最低保留量；普通与金色捕获果同时开启时优先金色。",
       stock: "库存", pensionBerryTitle: "培育屋专用果子", pensionBerryButton: "前往培育屋使用", pensionBerryNote: "这些果子只显示效果和库存，需要在培育屋满足条件时手动使用；助手不会自动消耗。",
       notifications: "通知", sound: "页面提示音", desktop: "桌面通知", diagnostic: "诊断", noError: "无异常", copyDiagnostic: "复制诊断", logs: "日志",
+      debugMode: "战斗调试模式", debugModeNote: "默认关闭。开启后按一次完整章节挑战记录配队决策、节点、敌我状态、伤害与结果；只存于浏览器 IndexedDB，不写入游戏存档。", debugLimit: "最多保留", debugRuns: "最近挑战", debugExport: "导出 JSON", debugClear: "清空记录", debugEmpty: "暂无调试记录", debugEnabled: "调试记录已开启", debugDisabled: "调试记录已关闭",
       statusTitle: "当前任务状态", task: "任务", target: "目标", place: "位置", attempts: "尝试", buffs: "增益", fifthTeam: "第五队", idle: "空闲", notGenerated: "未生成",
       notAppeared: "未出现", caught: "已捕获", appearing: "出现中", minutes: "分", moveUp: "上移", moveDown: "下移",
       targetPrompt: "输入编号或名称后，这里会显示对应的宝可梦。", unknownPokemon: "无对应宝可梦", available: "可加入",
@@ -129,6 +130,7 @@
       berryTitle: "Battle berries (all off by default)", reserve: "Minimum reserve", berryNote: "The number on the right is the reserve. Golden Razz is preferred when both catch berries are enabled.",
       stock: "Stock", pensionBerryTitle: "Day Care berries", pensionBerryButton: "Open Day Care", pensionBerryNote: "These berries show their effects and stock here, but must be used manually in the Day Care. The assistant never auto-consumes them.",
       notifications: "Notifications", sound: "Page sound", desktop: "Desktop notifications", diagnostic: "Diagnostics", noError: "No errors", copyDiagnostic: "Copy diagnostics", logs: "Logs",
+      debugMode: "Battle debug mode", debugModeNote: "Off by default. Records team decisions, nodes, combat state, damage and outcomes for one complete chapter attempt. Data stays in browser IndexedDB and never enters the game save.", debugLimit: "Keep at most", debugRuns: "Recent attempts", debugExport: "Export JSON", debugClear: "Clear records", debugEmpty: "No debug records yet", debugEnabled: "Debug recording enabled", debugDisabled: "Debug recording disabled",
       statusTitle: "Current task", task: "Mode", target: "Target", place: "Location", attempts: "Attempts", buffs: "Buffs", fifthTeam: "Team 5", idle: "Idle", notGenerated: "Not generated",
       notAppeared: "Not active", caught: "Caught", appearing: "Active", minutes: "min", moveUp: "Move up", moveDown: "Move down",
       targetPrompt: "Enter a Pokédex number or name to preview the target.", unknownPokemon: "No matching Pokémon", available: "Available",
@@ -153,6 +155,8 @@
     candidatePool: { enabled: false, minPower: 500, uids: [] },
     desktopNotifications: false,
     soundNotifications: true,
+    debugBattle: false,
+    debugLimit: 20,
     regionScope: "current",
     customRegions: ["kanto", "johto"],
     autoPushForCollection: true,
@@ -200,6 +204,10 @@
     dailyRaidCompletedDate: null,
     dailyRaidActiveRegion: null,
     dailyRaidRetryAt: 0,
+    debugRun: null,
+    debugRecent: [],
+    debugObserver: null,
+    debugFlushTimer: null,
   };
 
   let settings = loadSettings();
@@ -241,6 +249,7 @@
       const loaded = mergeDeep(DEFAULT_SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"));
       loaded.candidatePool = normalizeCandidatePool(loaded.candidatePool);
       if (!["all", "team", "box"].includes(loaded.buddyScope)) loaded.buddyScope = "all";
+      if (![20, 50, 100].includes(Number(loaded.debugLimit))) loaded.debugLimit = 20;
       return loaded;
     } catch {
       return structuredClone(DEFAULT_SETTINGS);
@@ -357,6 +366,251 @@
     log(`${phase}：${runtime.error.observed}`, "error");
     notifyUser("PokeCatch 助手已安全暂停", `${phase}：${runtime.error.observed}`);
     renderStatus();
+  }
+
+  const DEBUG_DB_NAME = "pokecatch-assistant-debug";
+  const DEBUG_STORE = "chapter-runs";
+  let debugDbPromise = null;
+
+  function debugDb() {
+    if (!debugDbPromise) {
+      debugDbPromise = new Promise((resolve, reject) => {
+        const request = indexedDB.open(DEBUG_DB_NAME, 1);
+        request.onupgradeneeded = () => {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(DEBUG_STORE)) {
+            const store = db.createObjectStore(DEBUG_STORE, { keyPath: "id" });
+            store.createIndex("startedAt", "startedAt");
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error || new Error("IndexedDB unavailable"));
+      });
+    }
+    return debugDbPromise;
+  }
+
+  function debugRequest(request) {
+    return new Promise((resolve, reject) => {
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("IndexedDB request failed"));
+    });
+  }
+
+  async function readDebugRuns() {
+    const db = await debugDb();
+    const tx = db.transaction(DEBUG_STORE, "readonly");
+    const rows = await debugRequest(tx.objectStore(DEBUG_STORE).getAll());
+    return rows.sort((a, b) => b.startedAt - a.startedAt);
+  }
+
+  async function trimDebugRuns() {
+    const rows = await readDebugRuns();
+    const stale = rows.slice(Number(settings.debugLimit) || 20);
+    if (!stale.length) return;
+    const db = await debugDb();
+    const tx = db.transaction(DEBUG_STORE, "readwrite");
+    for (const row of stale) tx.objectStore(DEBUG_STORE).delete(row.id);
+  }
+
+  async function persistDebugRun(run = runtime.debugRun) {
+    if (!run) return;
+    const db = await debugDb();
+    const tx = db.transaction(DEBUG_STORE, "readwrite");
+    tx.objectStore(DEBUG_STORE).put(structuredClone(run));
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("IndexedDB write failed"));
+      tx.onabort = () => reject(tx.error || new Error("IndexedDB write aborted"));
+    });
+    await trimDebugRuns();
+    await refreshDebugRecent();
+  }
+
+  function scheduleDebugFlush() {
+    clearTimeout(runtime.debugFlushTimer);
+    runtime.debugFlushTimer = setTimeout(() => {
+      runtime.debugFlushTimer = null;
+      persistDebugRun().catch((error) => log(`调试记录保存失败：${error.message}`, "error"));
+    }, 400);
+  }
+
+  function debugTeamSnapshot(save) {
+    return (save.teamSets?.list?.[4] || save.team || []).map((uid) => {
+      const mon = save.mons.find((candidate) => candidate.uid === uid);
+      return mon && { uid: String(mon.uid), id: Number(mon.id), level: Number(mon.level), shiny: !!mon.shiny, rank: Number(mon.rank || 0) };
+    }).filter(Boolean);
+  }
+
+  function debugBattleSnapshot(save) {
+    const battle = save.adv?.battle;
+    const brief = (entry) => entry && ({
+      id: Number(entry.id ?? entry.species ?? entry),
+      level: Number(entry.level ?? entry.lv ?? 0) || null,
+      hp: Number(entry.hp ?? entry.curHp ?? entry.currentHp ?? 0) || null,
+      maxHp: Number(entry.maxHp ?? entry.max ?? 0) || null,
+      status: entry.status || null,
+    });
+    return {
+      at: Date.now(),
+      chapter: Number(save.adv.chapter),
+      node: Number(save.adv.node || 0),
+      deaths: Number(save.adv.deaths || 0),
+      kind: battle?.kind || battle?.type || null,
+      enemies: [...(battle?.enemies || []), ...(battle?.foes || [])].map(brief).filter(Boolean),
+      allies: (battle?.allies || battle?.team || []).map(brief).filter(Boolean),
+      log: document.querySelector("#battle-log")?.textContent?.trim().slice(0, 300) || "",
+    };
+  }
+
+  function appendDebugEvent(type, data = {}) {
+    if (!settings.debugBattle || !runtime.debugRun) return;
+    runtime.debugRun.events.push({ at: Date.now(), type, ...data });
+    if (runtime.debugRun.events.length > 5_000) runtime.debugRun.events.splice(0, runtime.debugRun.events.length - 5_000);
+    scheduleDebugFlush();
+  }
+
+  function startDebugRun(save, reason = "start") {
+    const item = chapter(save.adv.chapter);
+    runtime.debugRun = {
+      id: `${Date.now()}-${save.adv.chapter}-${Math.random().toString(36).slice(2, 8)}`,
+      startedAt: Date.now(),
+      endedAt: null,
+      chapter: Number(save.adv.chapter),
+      chapterName: item?.name || String(save.adv.chapter),
+      gameBuild: gameBuild(),
+      dataBuild: DATA.appBuild,
+      reason,
+      result: "running",
+      startNode: Number(save.adv.node || 0),
+      lastNode: Number(save.adv.node || 0),
+      startDeaths: Number(save.adv.deaths || 0),
+      lastDeaths: Number(save.adv.deaths || 0),
+      badgesAtStart: [...(save.adv.badges || [])],
+      team: debugTeamSnapshot(save),
+      decisions: [],
+      events: [{ at: Date.now(), type: "challenge-start", reason, state: debugBattleSnapshot(save) }],
+    };
+    scheduleDebugFlush();
+  }
+
+  async function finishDebugRun(result, extra = {}) {
+    const run = runtime.debugRun;
+    if (!run) return;
+    clearTimeout(runtime.debugFlushTimer);
+    runtime.debugFlushTimer = null;
+    run.endedAt = Date.now();
+    run.result = result;
+    run.events.push({ at: Date.now(), type: "challenge-end", result, ...extra });
+    runtime.debugRun = null;
+    await persistDebugRun(run);
+  }
+
+  async function captureDebugState(save) {
+    if (!settings.debugBattle) {
+      if (runtime.debugRun) await finishDebugRun("debug-disabled");
+      return;
+    }
+    if (!runtime.debugRun) startDebugRun(save);
+    const run = runtime.debugRun;
+    if (Number(save.adv.chapter) !== run.chapter) {
+      await finishDebugRun("chapter-changed", { nextChapter: Number(save.adv.chapter) });
+      startDebugRun(save, "chapter-changed");
+      return;
+    }
+    const node = Number(save.adv.node || 0);
+    const deaths = Number(save.adv.deaths || 0);
+    const badge = chapter(run.chapter)?.boss?.badge;
+    if (badge && !run.badgesAtStart.includes(badge) && save.adv.badges?.includes(badge)) {
+      await finishDebugRun("badge-earned", { badge, state: debugBattleSnapshot(save) });
+      return;
+    }
+    if (node < run.lastNode || deaths > run.lastDeaths) {
+      await finishDebugRun(deaths > run.lastDeaths ? "team-defeated" : "chapter-restarted", { state: debugBattleSnapshot(save) });
+      startDebugRun(save, "retry");
+      return;
+    }
+    const snapshot = debugBattleSnapshot(save);
+    const signature = JSON.stringify([snapshot.node, snapshot.kind, snapshot.enemies, snapshot.allies, snapshot.log]);
+    if (signature !== run.lastSnapshot) {
+      run.events.push({ at: Date.now(), type: "state", state: snapshot });
+      run.lastSnapshot = signature;
+      scheduleDebugFlush();
+    }
+    run.lastNode = node;
+    run.lastDeaths = deaths;
+  }
+
+  function recordDebugDecision(plan, save, context) {
+    if (!settings.debugBattle || !runtime.debugRun || !plan) return;
+    runtime.debugRun.decisions.push({
+      at: Date.now(),
+      context,
+      team: plan.details,
+      signature: plan.signature,
+      simulation: plan.simulation ? {
+        clear: plan.simulation.clear,
+        reachedLeader: plan.simulation.reachedLeader,
+        completed: plan.simulation.completed,
+        total: plan.simulation.total,
+        remainingHp: plan.simulation.remainingHp,
+        failedAt: plan.simulation.failedAt,
+      } : null,
+      chapter: Number(save?.adv?.chapter),
+    });
+    scheduleDebugFlush();
+  }
+
+  async function refreshDebugRecent() {
+    try {
+      runtime.debugRecent = (await readDebugRuns()).slice(0, 5).map((run) => ({ id: run.id, chapterName: run.chapterName, startedAt: run.startedAt, result: run.result }));
+    } catch {
+      runtime.debugRecent = [];
+    }
+    const root = document.querySelector("#pca-debug-runs");
+    if (root) root.innerHTML = runtime.debugRecent.length
+      ? runtime.debugRecent.map((run) => `<div>${new Date(run.startedAt).toLocaleString()} · ${escapeHtml(run.chapterName)} · ${escapeHtml(run.result)}</div>`).join("")
+      : t("debugEmpty");
+  }
+
+  async function exportDebugRuns() {
+    const rows = await readDebugRuns();
+    const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), version: VERSION, runs: rows }, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = Object.assign(document.createElement("a"), { href: url, download: `pokecatch-debug-${new Date().toISOString().replace(/[:.]/g, "-")}.json` });
+    link.dispatchEvent(new MouseEvent("click"));
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  }
+
+  async function clearDebugRuns() {
+    const db = await debugDb();
+    const tx = db.transaction(DEBUG_STORE, "readwrite");
+    tx.objectStore(DEBUG_STORE).clear();
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error("IndexedDB clear failed"));
+      tx.onabort = () => reject(tx.error || new Error("IndexedDB clear aborted"));
+    });
+    runtime.debugRecent = [];
+    await refreshDebugRecent();
+  }
+
+  function observeDebugBattle() {
+    runtime.debugObserver?.disconnect();
+    const arena = document.querySelector("#arena");
+    if (!arena) return;
+    runtime.debugObserver = new MutationObserver((mutations) => {
+      if (!settings.debugBattle || !runtime.debugRun) return;
+      for (const mutation of mutations) {
+        for (const node of mutation.addedNodes || []) {
+          if (node.nodeType !== 1) continue;
+          const damageNodes = node.matches?.(".dmg") ? [node] : [...(node.querySelectorAll?.(".dmg") || [])];
+          for (const damage of damageNodes) appendDebugEvent("damage", { text: damage.textContent?.trim().slice(0, 40) || "", className: damage.className });
+        }
+        if (mutation.target?.closest?.("#battle-log")) appendDebugEvent("battle-log", { text: document.querySelector("#battle-log")?.textContent?.trim().slice(0, 300) || "" });
+      }
+    });
+    runtime.debugObserver.observe(arena, { subtree: true, childList: true, characterData: true });
   }
 
   function notifyUser(title, body) {
@@ -524,7 +778,8 @@
     const base = (2 * attacker.level / 5 + 2) * move.power * attack / defense / 50 + 2;
     const levelGap = (DATA.battle?.levelGap ?? 1.06) ** (attacker.level - defender.level);
     const roll = DATA.battle?.damageRoll ?? 0.85;
-    const enemyMultiplier = enemy ? (DATA.battle?.gymDamage ?? 1.3) : 1;
+    const enemyMultiplier = Number(options?.damageMultiplier)
+      || (enemy ? (DATA.battle?.gymDamage ?? 1.3) : 1);
     return Math.max(1, Math.floor(base * stab * effectiveness * levelGap * roll * enemyMultiplier))
       * effectiveAccuracy(move.accuracy);
   }
@@ -591,6 +846,194 @@
     const averageTempo = duels.reduce((sum, duel) => sum + duel.tempo, 0) / duels.length;
     const worstTempo = Math.min(...duels.map((duel) => duel.tempo));
     return { score: clears * 70 + averageTempo * 18 + worstTempo * 8, clears, worstTempo, duels };
+  }
+
+  function scaledBossTeam(chapterIndex) {
+    const item = chapter(chapterIndex);
+    const raw = item?.boss?.team || [];
+    if (!raw.length) return [];
+    const rawAce = Math.max(...raw.map(([, level]) => Number(level) || 1));
+    const ace = Number(item.boss.ace ?? item.ace) + Number(item.boss.aceOffset || 0);
+    return raw.map(([id, level]) => ({
+      id: Number(id),
+      level: ace > 0 ? Math.round(Number(level) * ace / rawAce) : Number(level),
+    }));
+  }
+
+  function chapterGymTrainerCount(chapterIndex) {
+    const item = chapter(chapterIndex);
+    if (!item?.boss?.badge || item.boss.champion || item.league) return 0;
+    const ordinal = DATA.chapters.filter((candidate) => (
+      candidate.region === item.region && candidate.index <= chapterIndex && candidate.boss?.badge
+    )).length;
+    const counts = DATA.battle?.gymTrainers?.counts || [1, 2, 2, 3];
+    return counts[Math.min(Math.max(ordinal, 1), counts.length) - 1] || 0;
+  }
+
+  function routeThreats(save, item, route) {
+    const at = Number(save?.lastTick) || Date.now();
+    const phase = currentDaytimePhase(save, item.index);
+    const weather = currentWeatherForRoute(save, item, route, at, phase);
+    const weights = routeWeights(route, phase, weather);
+    const level = Math.max(1, Number(route.levelBand?.[1] || item.ace || 1));
+    const pool = Object.entries(weights)
+      .filter(([id, weight]) => species(Number(id)) && Number(weight) > 0)
+      .sort((a, b) => Number(b[1]) - Number(a[1]) || Number(a[0]) - Number(b[0]))
+      .slice(0, 6)
+      .map(([id]) => ({ id: Number(id), level }));
+    if (pool.length) return pool;
+    return scaledBossTeam(item.index).slice(0, 3).map((foe) => ({ ...foe, level: Math.min(foe.level, level) }));
+  }
+
+  function scaledFixedTrainerTeam(item, step) {
+    const raw = step.team || [];
+    if (!raw.length) return [];
+    if (!step.scale || !item.ace) return raw.map(([id, level]) => ({ id: Number(id), level: Number(level) }));
+    const rawAce = Math.max(...raw.map(([, level]) => Number(level) || 1));
+    const precedingRoute = [...(item.steps || [])].slice(0, step.stepIndex).reverse().find((candidate) => candidate.kind === "route");
+    const routeLevel = Number(precedingRoute?.levelBand?.[1] || item.ace);
+    const target = step.below == null ? routeLevel : Math.min(routeLevel, Number(item.ace) - Number(step.below));
+    return raw.map(([id, level]) => ({ id: Number(id), level: Math.round(Number(level) * target / rawAce) }));
+  }
+
+  function chapterBattleSequence(save, chapterIndex) {
+    const item = chapter(chapterIndex);
+    if (!item) return [];
+    const sequence = [];
+    for (const step of item.steps || []) {
+      if (step.kind === "heal") {
+        sequence.push({ kind: "heal", stepIndex: step.stepIndex, name: step.name || "Heal" });
+        continue;
+      }
+      if (step.kind === "route") {
+        const threats = routeThreats(save, item, step);
+        const wildCount = Number(step.wild || 0);
+        const trainerCount = Number(step.trainers || 0);
+        const total = wildCount + trainerCount;
+        let wildIndex = 0;
+        let trainerIndex = 0;
+        for (let index = 0; index < total; index += 1) {
+          const trainersDue = Math.floor((index + 1) * trainerCount / Math.max(1, total));
+          const kind = trainerIndex < trainersDue ? "trainer" : "wild";
+          const threatIndex = kind === "trainer" ? trainerIndex + 1 : wildIndex;
+          if (threats.length) sequence.push({
+            kind,
+            stepIndex: step.stepIndex,
+            name: step.name,
+            enemies: [threats[threatIndex % threats.length]],
+            damageMultiplier: DATA.battle?.enemyDamage?.[kind] ?? (kind === "trainer" ? 0.9 : 0.85),
+          });
+          if (kind === "trainer") trainerIndex += 1;
+          else wildIndex += 1;
+        }
+        continue;
+      }
+      if (step.kind === "trainer") {
+        const enemies = scaledFixedTrainerTeam(item, step);
+        if (enemies.length) sequence.push({ kind: "trainer", stepIndex: step.stepIndex, name: step.name, enemies, damageMultiplier: DATA.battle?.enemyDamage?.trainer ?? 0.9 });
+        continue;
+      }
+      if (step.kind === "static" && step.id) {
+        sequence.push({ kind: "static", stepIndex: step.stepIndex, name: step.name, enemies: [{ id: Number(step.id), level: Number(step.level || item.ace || 1) }], damageMultiplier: DATA.battle?.enemyDamage?.static ?? 1, hpMultiplier: 1 + (DATA.battle?.enemyHpPerAlly ?? 0.7) * 5 });
+        continue;
+      }
+      if (step.kind === "gym") {
+        const leader = scaledBossTeam(chapterIndex);
+        const below = DATA.battle?.gymTrainers?.below || [4, 2, 2];
+        const count = chapterGymTrainerCount(chapterIndex);
+        for (let index = 0; index < count; index += 1) {
+          const source = leader[index % Math.max(1, leader.length)];
+          if (source) sequence.push({ kind: "gym-trainer", stepIndex: step.stepIndex, name: step.name, enemies: [{ id: source.id, level: Math.max(1, Number(item.ace) - below[Math.min(index, below.length - 1)]) }], damageMultiplier: DATA.battle?.gymTrainers?.damage ?? 0.8 });
+        }
+        if (leader.length) {
+          const power = Number(step.power || item.boss?.power || 1);
+          sequence.push({
+            kind: "leader",
+            stepIndex: step.stepIndex,
+            name: item.boss?.name || step.name,
+            enemies: leader,
+            damageMultiplier: (DATA.battle?.gymDamage ?? 1.3) * power,
+            hpMultiplier: (DATA.battle?.gymHpMult ?? 1.3) * power * Math.max(1, 6 / leader.length) ** (DATA.battle?.gymTeamExp ?? 0.7),
+          });
+        }
+      }
+    }
+    return sequence;
+  }
+
+  function freshBattleUnit(mon, hpMultiplier = 1) {
+    const stats = battleStats(mon);
+    const maxHp = Math.max(1, Math.floor((stats?.hp || 1) * hpMultiplier));
+    return { ...mon, maxHp, hp: maxHp };
+  }
+
+  function pickBattleAlly(allies, enemy, damageMultiplier) {
+    return allies.filter((ally) => ally.hp > 0).map((ally) => {
+      const outgoing = bestDamageMove(ally, enemy).damage;
+      const incoming = bestDamageMove(enemy, ally, { damageMultiplier }).damage;
+      const speed = battleStats(ally)?.spe >= battleStats(enemy)?.spe ? 0.2 : 0;
+      return { ally, value: outgoing / Math.max(1, incoming) + ally.hp / ally.maxHp * 0.25 + speed };
+    }).sort((a, b) => b.value - a.value || String(a.ally.uid).localeCompare(String(b.ally.uid)))[0]?.ally || null;
+  }
+
+  function simulateDeterministicBattle(allies, encounter) {
+    const detail = { kind: encounter.kind, name: encounter.name, enemies: [], allyKos: [] };
+    for (const enemySpec of encounter.enemies || []) {
+      const enemy = freshBattleUnit({ id: enemySpec.id, level: enemySpec.level, shiny: false, rank: 0 }, encounter.hpMultiplier || 1);
+      const enemyDetail = { id: enemy.id, level: enemy.level, maxHp: enemy.maxHp, turns: 0 };
+      while (enemy.hp > 0 && allies.some((ally) => ally.hp > 0) && enemyDetail.turns < 200) {
+        const ally = pickBattleAlly(allies, enemy, encounter.damageMultiplier || 1);
+        if (!ally) break;
+        const outgoing = Math.max(1, bestDamageMove(ally, enemy).damage);
+        const incoming = Math.max(1, bestDamageMove(enemy, ally, { damageMultiplier: encounter.damageMultiplier || 1 }).damage);
+        const allyFirst = (battleStats(ally)?.spe || 0) >= (battleStats(enemy)?.spe || 0);
+        if (allyFirst) {
+          enemy.hp -= outgoing;
+          if (enemy.hp > 0) ally.hp -= incoming;
+        } else {
+          ally.hp -= incoming;
+          if (ally.hp > 0) enemy.hp -= outgoing;
+        }
+        enemyDetail.turns += 1;
+        if (ally.hp <= 0 && !detail.allyKos.includes(ally.uid)) detail.allyKos.push(ally.uid);
+      }
+      enemyDetail.remainingHp = Math.max(0, enemy.hp);
+      detail.enemies.push(enemyDetail);
+      if (enemy.hp > 0) return { win: false, detail };
+    }
+    return { win: true, detail };
+  }
+
+  function simulateChapterTeam(save, team, chapterIndex) {
+    const allies = team.map((mon) => freshBattleUnit({ ...mon }));
+    const sequence = chapterBattleSequence(save, chapterIndex);
+    const details = [];
+    let completed = 0;
+    let reachedLeader = false;
+    for (const encounter of sequence) {
+      if (encounter.kind === "heal") {
+        for (const ally of allies) ally.hp = ally.maxHp;
+        details.push({ kind: "heal", name: encounter.name });
+        continue;
+      }
+      if (encounter.kind === "leader") reachedLeader = true;
+      const result = simulateDeterministicBattle(allies, encounter);
+      details.push(result.detail);
+      if (!result.win) {
+        const totalHp = allies.reduce((sum, ally) => sum + Math.max(0, ally.hp), 0);
+        const totalMax = allies.reduce((sum, ally) => sum + ally.maxHp, 0) || 1;
+        return { clear: false, reachedLeader, completed, total: sequence.filter((item) => item.kind !== "heal").length, remainingHp: totalHp / totalMax, failedAt: encounter.kind, details };
+      }
+      completed += 1;
+    }
+    const totalHp = allies.reduce((sum, ally) => sum + Math.max(0, ally.hp), 0);
+    const totalMax = allies.reduce((sum, ally) => sum + ally.maxHp, 0) || 1;
+    return { clear: true, reachedLeader, completed, total: completed, remainingHp: totalHp / totalMax, failedAt: null, details };
+  }
+
+  function chapterSimulationScore(result) {
+    const progress = result.total ? result.completed / result.total : 0;
+    return (result.clear ? 1_000_000_000 : 0) + (result.reachedLeader ? 10_000_000 : 0) + progress * 1_000_000 + result.remainingHp * 10_000;
   }
 
   function removeClearlyDominatedCandidates(save, candidates, enemies, targetLevel) {
@@ -664,12 +1107,55 @@
     };
   }
 
+  function optimizeChapterTeam(save, candidates, initial, chapterIndex, scoreOptions, excludedSignatures) {
+    if (chapterIndex == null || initial.length < 2 || !chapter(chapterIndex)?.steps?.length) return { team: initial, simulation: null };
+    const continuity = new Set(save.teamSets?.list?.[4] || save.team || []);
+    const ranked = candidates.map((mon) => ({
+      mon,
+      score: scoreCandidate(mon, scoreOptions.enemies, continuity, [], scoreOptions.levelWeight, scoreOptions.preferredLevel, save, scoreOptions.targetLevel).score,
+    })).sort((a, b) => b.score - a.score);
+    const identitySeen = new Set();
+    const pool = [...initial, ...ranked.map((entry) => entry.mon)].filter((mon) => {
+      const key = `${teamIdentity(mon)}|${mon.uid}`;
+      if (identitySeen.has(key)) return false;
+      identitySeen.add(key);
+      return true;
+    }).slice(0, 24);
+    const evaluate = (team) => {
+      const signature = team.map((mon) => mon.uid).sort().join("|");
+      if (excludedSignatures.has(signature)) return { score: -Infinity, result: null };
+      const result = simulateChapterTeam(save, team, chapterIndex);
+      return { score: chapterSimulationScore(result), result };
+    };
+    let bestTeam = initial.slice();
+    let best = evaluate(bestTeam);
+    for (let pass = 0; pass < 2; pass += 1) {
+      let improved = false;
+      for (let slot = 0; slot < bestTeam.length; slot += 1) {
+        for (const candidate of pool) {
+          if (bestTeam.some((mon, index) => index !== slot && teamIdentity(mon) === teamIdentity(candidate))) continue;
+          const trial = bestTeam.slice();
+          trial[slot] = candidate;
+          const evaluated = evaluate(trial);
+          if (evaluated.score > best.score + 1e-9) {
+            bestTeam = trial;
+            best = evaluated;
+            improved = true;
+          }
+        }
+      }
+      if (!improved) break;
+    }
+    return { team: bestTeam, simulation: best.result };
+  }
+
   function recommendTeam(save, enemyIds, options) {
     const {
       excludedSignatures = new Set(),
       levelWeight = DEFAULT_LEVEL_WEIGHT,
       preferredLevel = null,
       targetLevel = null,
+      chapterIndex = null,
     } = options || {};
     const fallbackLevel = Math.max(1, Number(targetLevel) || 1);
     const enemies = enemyProfiles(enemyIds, fallbackLevel);
@@ -712,7 +1198,28 @@
         });
       }
     }
-    return { mons: selected, details, enemyIds, signature: selected.map((mon) => mon.uid).sort().join("|") };
+    const optimized = typeof optimizeChapterTeam === "function"
+      ? optimizeChapterTeam(save, candidates, selected, chapterIndex, {
+        enemies,
+        levelWeight,
+        preferredLevel,
+        targetLevel: fallbackLevel,
+      }, excludedSignatures)
+      : { team: selected, simulation: null };
+    if (optimized.team !== selected) {
+      selected.splice(0, selected.length, ...optimized.team);
+      details.splice(0, details.length, ...selected.map((mon, index) => {
+        const scored = scoreCandidate(mon, enemies, currentFive, selected.slice(0, index), levelWeight, preferredLevel, save, fallbackLevel);
+        return { uid: mon.uid, id: mon.id, name: species(mon.id)?.n || mon.id, score: scored.score, reason: scored.reason };
+      }));
+    }
+    return {
+      mons: selected,
+      details,
+      enemyIds,
+      signature: selected.map((mon) => mon.uid).sort().join("|"),
+      simulation: optimized.simulation,
+    };
   }
 
   function recommendRoamingTeam(save, enemyId) {
@@ -732,7 +1239,7 @@
 
   function targetEnemiesForChapter(chapterIndex) {
     const item = chapter(chapterIndex);
-    const levels = new Map(item?.boss?.team || []);
+    const levels = new Map(scaledBossTeam(chapterIndex).map(({ id, level }) => [id, level]));
     const observed = runtime.observedEnemies.get(chapterIndex) || new Set();
     const observedLevel = runtime.lastOpponent.get(chapterIndex)?.maxLevel || item?.ace || 1;
     for (const id of observed) levels.set(id, Math.max(levels.get(id) || 0, observedLevel));
@@ -1040,6 +1547,7 @@
         const team = recommendTeam(targetSave, [alternative.speciesId], {
           levelWeight: COLLECTION_LEVEL_WEIGHT,
           targetLevel: chapter(alternative.chapter)?.ace,
+          chapterIndex: alternative.chapter,
         });
         await applyRecommendedTeam(team, species(alternative.speciesId)?.n || String(alternative.speciesId));
       }
@@ -1061,6 +1569,15 @@
   async function applyRecommendedTeam(plan, reason) {
     runtime.teamPlan = plan;
     runtime.teamStatus = `推荐完成：${reason}`;
+    let save = null;
+    try { save = readSave(); } catch { /* ignore */ }
+    if (save) recordDebugDecision(plan, save, reason);
+    if (plan.simulation) {
+      const result = plan.simulation.clear
+        ? `整章确定性模拟通过，剩余生命 ${(plan.simulation.remainingHp * 100).toFixed(0)}%`
+        : `整章确定性模拟在${plan.simulation.failedAt || "未知节点"}失败，完成 ${plan.simulation.completed}/${plan.simulation.total}`;
+      log(result, plan.simulation.clear ? "info" : "error");
+    }
     renderStatus();
     if (settings.lockTeam5 || runtime.userTeamOverride) {
       log(`第五队已锁定，仅生成推荐：${plan.details.map((item) => item.name).join("、")}`);
@@ -2030,6 +2547,7 @@
       const plan = recommendTeam(save, targetEnemiesForChapter(frontier), {
         excludedSignatures: failures,
         targetLevel: chapter(frontier)?.ace,
+        chapterIndex: frontier,
       });
       await exclusive("生成推图阵容", () => applyRecommendedTeam(plan, chapter(frontier)?.name || `章节${frontier}`));
       return;
@@ -2060,6 +2578,7 @@
         const plan = recommendTeam(save, targetEnemiesForChapter(frontier), {
           excludedSignatures: failed,
           targetLevel: chapter(frontier)?.ace,
+          chapterIndex: frontier,
         });
         notifyUser("阵容需要调整", `同一章节连续失败，重新配置${chapter(frontier)?.name || "当前章节"}阵容。`);
         await exclusive("失败后重新配队", () => applyRecommendedTeam(plan, "连续失败后调整"));
@@ -2079,7 +2598,7 @@
       runtime.targetPlan = plan;
       runtime.userTeamOverride = false;
       const fresh = readSave();
-      const team = recommendTeam(fresh, targetEnemiesForChapter(plan.chapter), { targetLevel: chapter(plan.chapter)?.ace });
+      const team = recommendTeam(fresh, targetEnemiesForChapter(plan.chapter), { targetLevel: chapter(plan.chapter)?.ace, chapterIndex: plan.chapter });
       await exclusive("配置全收集推图阵容", () => applyRecommendedTeam(team, `${plan.chapterName} · 解锁更多图鉴`));
       log(`为全收集推进${plan.chapterName}；下一次章节解锁后立即重新扫描`);
     }
@@ -2298,6 +2817,7 @@
           : recommendTeam(targetSave, [next.speciesId], {
             levelWeight: COLLECTION_LEVEL_WEIGHT,
             targetLevel: chapter(next.chapter)?.ace,
+            chapterIndex: next.chapter,
           });
         await applyRecommendedTeam(plan, species(next.speciesId)?.n || String(next.speciesId));
       });
@@ -2315,6 +2835,7 @@
             : recommendTeam(targetSave, [runtime.targetPlan.speciesId], {
               levelWeight: COLLECTION_LEVEL_WEIGHT,
               targetLevel: chapter(runtime.targetPlan.chapter)?.ace,
+              chapterIndex: runtime.targetPlan.chapter,
             });
           await applyRecommendedTeam(plan, species(runtime.targetPlan.speciesId)?.n || String(runtime.targetPlan.speciesId));
         }
@@ -2411,11 +2932,13 @@
 
   async function tick() {
     if (runtime.busy) {
+      try { await captureDebugState(readSave()); } catch (error) { log(`调试状态采集失败：${error.message}`, "error"); }
       renderStatus();
       return;
     }
     try {
       const save = readSave();
+      await captureDebugState(save);
       if (save.adv?.event?.raid) {
         runtime.dailyRaidActiveRegion = save.adv.event.reg || null;
         renderStatus();
@@ -2833,6 +3356,13 @@
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "diagnostics" ? "active" : ""}" role="tabpanel" data-tabpanel="diagnostics">
           <div class="pca-card"><h4>${t("notifications")}</h4><label class="pca-row"><input type="checkbox" data-setting="soundNotifications" ${settings.soundNotifications ? "checked" : ""}>${t("sound")}</label><label class="pca-row"><input type="checkbox" data-setting="desktopNotifications" ${settings.desktopNotifications ? "checked" : ""}>${t("desktop")}</label></div>
+          <div class="pca-card"><h4>${t("debugMode")}</h4>
+            <label class="pca-row"><input type="checkbox" data-setting="debugBattle" ${settings.debugBattle ? "checked" : ""}>${t("debugMode")}</label>
+            <div class="pca-note">${t("debugModeNote")}</div>
+            <div class="pca-row"><label for="pca-debug-limit">${t("debugLimit")}</label><select id="pca-debug-limit" class="pca-select pca-grow" data-select-setting="debugLimit">${[20, 50, 100].map((value) => `<option value="${value}" ${Number(settings.debugLimit) === value ? "selected" : ""}>${value}</option>`).join("")}</select></div>
+            <h4>${t("debugRuns")}</h4><div id="pca-debug-runs" class="pca-note">${t("debugEmpty")}</div>
+            <div class="pca-row"><button class="pca-btn" data-act="debug-export">${t("debugExport")}</button><button class="pca-btn danger" data-act="debug-clear">${t("debugClear")}</button></div>
+          </div>
           <div class="pca-card"><h4>${t("diagnostic")}</h4><div id="pca-error" class="pca-note">${t("noError")}</div><div class="pca-row"><button class="pca-btn" data-act="copydiag">${t("copyDiagnostic")}</button></div></div>
           <div class="pca-card"><h4>${t("logs")}</h4><div id="pca-log" class="pca-log"></div></div>
         </div>
@@ -2897,6 +3427,8 @@
       else if (action === "roam-up") moveRoamingPriority(Number(event.target.closest("[data-roamer]")?.dataset.roamer), -1);
       else if (action === "roam-down") moveRoamingPriority(Number(event.target.closest("[data-roamer]")?.dataset.roamer), 1);
       else if (action === "copydiag") navigator.clipboard.writeText(JSON.stringify(runtime.error || { status: t("noError"), build: gameBuild() }, null, 2));
+      else if (action === "debug-export") exportDebugRuns().catch((error) => log(`调试记录导出失败：${error.message}`, "error"));
+      else if (action === "debug-clear") clearDebugRuns().catch((error) => log(`调试记录清空失败：${error.message}`, "error"));
     });
 
     panel.addEventListener("input", (event) => {
@@ -2944,6 +3476,15 @@
             runtime.teamPlan = null;
           }
         }
+        if (setting === "debugBattle") {
+          log(settings.debugBattle ? t("debugEnabled") : t("debugDisabled"));
+          if (settings.debugBattle) {
+            try { startDebugRun(readSave(), "debug-enabled"); } catch { /* game save may not be ready yet */ }
+            observeDebugBattle();
+          } else if (runtime.debugRun) {
+            finishDebugRun("debug-disabled").catch((error) => log(`调试记录保存失败：${error.message}`, "error"));
+          }
+        }
         saveSettings();
       }
       const berry = event.target.dataset.berry;
@@ -2975,6 +3516,11 @@
         saveSettings();
         if (settings.autoBuddy) queueMicrotask(() => tick());
       }
+      if (selectSetting === "debugLimit") {
+        settings.debugLimit = [20, 50, 100].includes(Number(event.target.value)) ? Number(event.target.value) : 20;
+        saveSettings();
+        trimDebugRuns().then(refreshDebugRecent).catch((error) => log(`调试记录整理失败：${error.message}`, "error"));
+      }
       const region = event.target.dataset.region;
       if (region) {
         settings.customRegions = event.target.checked
@@ -2993,6 +3539,7 @@
     });
     renderStatus();
     renderLog();
+    refreshDebugRecent();
     if (settings.activeTab === "training") renderCandidatePool();
     if (!runtime.floatResizeBound) {
       window.addEventListener("resize", () => {
@@ -3128,7 +3675,7 @@
     const targetLevel = storyTarget ? chapter(save.adv.chapter)?.ace : chapter(runtime.targetPlan.chapter)?.ace;
     const plan = runtime.targetPlan.roaming || runtime.targetPlan.special
       ? recommendRoamingTeam(save, runtime.targetPlan.speciesId)
-      : recommendTeam(save, enemyIds, { levelWeight, targetLevel });
+      : recommendTeam(save, enemyIds, { levelWeight, targetLevel, chapterIndex: storyTarget ? save.adv.chapter : null });
     await exclusive("手动重新生成阵容", () => applyRecommendedTeam(plan, "用户要求重新生成"));
   }
 
@@ -3257,6 +3804,8 @@
   function init() {
     renderPanel();
     offerResume();
+    observeDebugBattle();
+    refreshDebugRecent();
     runtime.timer = setInterval(tick, 900);
     const timeline = document.querySelector("#timeline");
     if (timeline) {
@@ -3292,8 +3841,13 @@
       previewTeam: (chapterIndex = readSave().adv.chapter) => recommendTeam(
         readSave(),
         targetEnemiesForChapter(chapterIndex),
-        { targetLevel: chapter(chapterIndex)?.ace },
+        { targetLevel: chapter(chapterIndex)?.ace, chapterIndex },
       ).details,
+      previewChapterSimulation: (chapterIndex = readSave().adv.chapter) => {
+        const save = readSave();
+        const team = (save.teamSets?.list?.[4] || save.team || []).map((uid) => save.mons.find((mon) => mon.uid === uid)).filter(Boolean);
+        return simulateChapterTeam(save, team, chapterIndex);
+      },
       previewMissing: () => chooseMissingPlan(readSave()),
     };
     log(`助手已加载，游戏数据版本 ${DATA.appBuild}`);

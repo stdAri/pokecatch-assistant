@@ -1,11 +1,11 @@
 {
   "name": "pokecatch-assistant",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "node scripts/build.mjs /private/tmp/pokecatch-app.ac708615ae.js /private/tmp/pokecatch-lang-zh-Hans.d925dec528.js",
+    "build": "node scripts/build.mjs /private/tmp/pokecatch-app.c742526349.js /private/tmp/pokecatch-lang-zh-Hans.42252d10e8.js",
     "check": "node --check dist/pokecatch-assistant.user.js",
     "predev": "npm run build",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",

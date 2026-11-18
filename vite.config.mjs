@@ -13,7 +13,9 @@ function readGeneratedGameData() {
   const source = fs.readFileSync(distPath, "utf8");
   const marker = "const DATA = ";
   const start = source.indexOf(marker);
-  const end = source.indexOf(";\n  const SAVE_KEY", start);
+  const tail = source.slice(start + marker.length);
+  const endOffset = tail.search(/;\r?\n  const SAVE_KEY/);
+  const end = endOffset < 0 ? -1 : start + marker.length + endOffset;
   if (start < 0 || end < 0) throw new Error("dist 中缺少游戏数据；请先运行 npm run build");
   return source.slice(start + marker.length, end);
 }
@@ -45,7 +47,7 @@ export default defineConfig({
       userscript: {
         name: "Dev: PokeCatch Assistant / 全图鉴与推图助手",
         namespace: "local.pokecatch.assistant.dev",
-        version: "0.13.0",
+        version: "0.14.0",
         description: "Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。",
         match: [
           "https://pokecatch-online.netlify.app/*",

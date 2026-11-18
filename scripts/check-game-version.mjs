@@ -22,13 +22,14 @@ export function extractExpectedBuilds(buildCommand) {
 
 export function createUpdateMessage({ published, expected, projectRoot = root }) {
   return [
-    "PokeCatch 官方游戏资源版本检测发现变化，请处理兼容更新。",
+    "PokeCatch 官方游戏资源版本检测发现变化，请先做内容兼容性分析。",
     `项目目录：${projectRoot}`,
     `官方版本：app=${published.appBuild}，zh-Hans=${published.langBuild}`,
     `项目兼容基线：app=${expected.appBuild}，zh-Hans=${expected.langBuild}`,
     "开始前先读取 HANDOFF.md、REQUIREMENTS.md、package.json、当前 Git 状态和未提交差异。",
     "先执行 git fetch 并比较本地分支与 origin/main；工作区干净且可快进时先安全快进。存在未提交改动、分叉或冲突风险时不得覆盖或丢弃任何改动，无法无损协调时停止并如实报告。",
-    "随后独立读取官方 boot.js 核验版本，不要只相信这条通知。确有更新时，把官方资源下载到项目外临时目录，备份 dist，完成构建提取器、构建配置、测试基线和生成成品的适配。",
+    "随后独立读取官方 boot.js 核验版本，不要只相信这条通知。确有更新时，把官方资源下载到项目外临时目录并备份 dist；先用现有提取器重建、运行测试，并比较章节、战斗常量、存档结构、页面选择器和关键数据的语义差异。",
+    "资源哈希变化不等于插件不兼容。若结构和行为仍兼容，只更新经过验证的数据基线与内容数据，不做无依据的兼容代码改动；只有确认接口、结构或行为实际不兼容时，才修改对应实现并补回归测试。",
     "实际运行 npm test、npm run check、构建和必要的本地开发验证。按 SemVer 与项目长期规则处理提交和推送，但不要创建标签或 Release。最后用中文报告同步、改动、测试、推送和遗留问题。",
   ].join("\n");
 }

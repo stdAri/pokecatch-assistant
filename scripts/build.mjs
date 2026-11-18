@@ -149,6 +149,15 @@ const exactChapterCaps = chapters.map((chapter, index) => {
   return Math.min(100, cap);
 });
 
+const exactChapterBands = chapters.map((chapter, index) => {
+  const ace = exactChapterAce[index];
+  if (ace == null) return null;
+  const region = storyRegionByKey.get(chapterRegions[index]);
+  const first = chapters.findIndex((item, itemIndex) => chapterRegions[itemIndex] === chapterRegions[index]);
+  const previousAce = index > first ? exactChapterAce[index - 1] : null;
+  return [previousAce ?? Number(region?.base || 0) + 2, ace - 1];
+});
+
 const context = { window: {} };
 vm.createContext(context);
 vm.runInContext(langSource, context, { timeout: 2_000 });
@@ -164,6 +173,16 @@ let inheritedRegion = "kanto";
 const compactChapters = chapters.map((chapter, index) => {
   inheritedRegion = chapter.reg || inheritedRegion;
   const steps = chapter.steps || [];
+  const routeSteps = steps.filter((step) => step.kind === "route");
+  const routeBands = new Map(routeSteps.map((step, routeIndex) => {
+    if (step.lv) return [step, step.lv];
+    const band = exactChapterBands[index];
+    if (!band) return [step, null];
+    const width = (band[1] - band[0]) / Math.max(1, routeSteps.length);
+    const min = Math.round(band[0] + width * routeIndex);
+    const max = Math.round(band[0] + width * (routeIndex + 1));
+    return [step, [min, Math.max(min + 1, max)]];
+  }));
   const boss = [...steps].reverse().find((step) => step.kind === "gym" || step.kind === "trainer");
   return {
     index,
@@ -177,6 +196,44 @@ const compactChapters = chapters.map((chapter, index) => {
     gym: steps.some((step) => step.kind === "gym"),
     champion: steps.some((step) => step.champion),
     levelCap: exactChapterCaps[index],
+    steps: steps.map((step, stepIndex) => ({
+      stepIndex,
+      kind: step.kind,
+      name: translate(step.name),
+      sourceName: step.name,
+      ...(step.kind === "route" ? {
+        wild: step.wild || 0,
+        trainers: step.trainers || 0,
+        areas: step.areas || [],
+        species: step.species || [],
+        habitat: step.habitat || null,
+        bg: step.bg || null,
+        indoor: step.indoor,
+        climate: step.climate || null,
+        weather: step.weather,
+        levelBand: routeBands.get(step),
+      } : {}),
+      ...(step.kind === "trainer" ? {
+        team: step.team || [],
+        scale: !!step.scale,
+        below: step.below ?? null,
+      } : {}),
+      ...(step.kind === "static" ? {
+        id: step.id,
+        level: step.level ?? null,
+        power: step.power || 1,
+      } : {}),
+      ...(step.kind === "gym" ? {
+        team: step.team || [],
+        ace: step.ace ?? null,
+        aceOffset: step.aceOffset || 0,
+        power: step.power || 1,
+        double: !!step.double,
+        badge: step.badge || null,
+        champion: !!step.champion,
+        type: step.type || null,
+      } : {}),
+    })),
     routes: steps
       .map((step, stepIndex) => ({
         stepIndex,
@@ -195,6 +252,7 @@ const compactChapters = chapters.map((chapter, index) => {
         night: !!step.night,
         skies: step.skies || [],
         climate: step.climate || null,
+        levelBand: routeBands.get(step),
       }))
       .filter((step) => step.wild > 0),
     staticEncounters: steps
@@ -225,6 +283,10 @@ const compactChapters = chapters.map((chapter, index) => {
           team: boss.team || [],
           badge: boss.badge || null,
           champion: !!boss.champion,
+          ace: boss.ace ?? null,
+          aceOffset: boss.aceOffset || 0,
+          power: boss.power || 1,
+          double: !!boss.double,
         }
       : null,
   };
@@ -296,12 +358,27 @@ const numericConfig = (key, fallback) => {
   return match ? Number(match[1]) : fallback;
 };
 
+const gymTrainerConfig = bundle.match(/GYM_TRAINERS:\{counts:\[([.\d,]+)\],below:\[([.\d,]+)\],damage:([.\d]+)\}/);
+
 const battle = {
   maxLevel: numericConfig("MAX_LEVEL", 100),
   leagueDoneCap: numericConfig("LEAGUE_DONE_CAP", 100),
   levelGap: numericConfig("LEVEL_GAP", 1.06),
   damageRoll: 0.85,
   gymDamage: numericConfig("GYM_DAMAGE", 1.3),
+  gymHpMult: numericConfig("GYM_HP_MULT", 1.3),
+  gymTeamExp: numericConfig("GYM_TEAM_EXP", 0.7),
+  enemyHpPerAlly: numericConfig("ENEMY_HP_PER_ALLY", 0.7),
+  enemyDamage: {
+    wild: Number(bundle.match(/ENEMY_DAMAGE:\{wild:([.\d]+)/)?.[1] || 0.85),
+    trainer: Number(bundle.match(/ENEMY_DAMAGE:\{wild:[.\d]+,trainer:([.\d]+)/)?.[1] || 0.9),
+    static: Number(bundle.match(/ENEMY_DAMAGE:\{wild:[.\d]+,trainer:[.\d]+,static:([.\d]+)/)?.[1] || 1),
+  },
+  gymTrainers: {
+    counts: gymTrainerConfig?.[1].split(",").map(Number) || [1, 2, 2, 3],
+    below: gymTrainerConfig?.[2].split(",").map(Number) || [4, 2, 2],
+    damage: Number(gymTrainerConfig?.[3] || 0.8),
+  },
   hpLevelScale: numericConfig("HP_LEVEL_SCALE", 1.5),
   hpLevelMax: numericConfig("HP_LEVEL_MAX", 2.5),
   hpBoost: numericConfig("HP_BOOST", 1.1),

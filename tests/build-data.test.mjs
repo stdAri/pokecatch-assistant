@@ -50,8 +50,8 @@ function sourceFunctions(names, context = {}) {
 }
 
 test("generated data matches the inspected game build", () => {
-  assert.equal(data.appBuild, "ac708615ae");
-  assert.equal(data.langBuild, "d925dec528");
+  assert.equal(data.appBuild, "c742526349");
+  assert.equal(data.langBuild, "42252d10e8");
   assert.equal(Object.keys(data.species).length, 721);
   assert.equal(data.species[4].n, "小火龙");
   assert.deepEqual(data.species[4].t, ["fire"]);
@@ -61,22 +61,23 @@ test("generated data matches the inspected game build", () => {
   assert.equal(data.battle.maxLevel, 100);
   assert.equal(data.battle.levelGap, 1.06);
   assert.equal(data.battle.gymDamage, 1.3);
+  assert.deepEqual(data.battle.gymTrainers.counts, [1, 2, 2, 3]);
+  assert.deepEqual(data.battle.gymTrainers.below, [4, 2, 2]);
 });
 
-test("userscript and development metadata share version 0.13.0", () => {
-  assert.equal(packageJson.version, "0.13.0");
-  assert.ok(source.includes("// @version      0.13.0"));
-  assert.ok(source.includes('const VERSION = "0.13.0"'));
-  assert.ok(viteConfig.includes('version: "0.13.0"'));
+test("userscript and development metadata share version 0.14.0", () => {
+  assert.equal(packageJson.version, "0.14.0");
+  assert.ok(source.includes("// @version      0.14.0"));
+  assert.ok(source.includes('const VERSION = "0.14.0"'));
+  assert.ok(viteConfig.includes('version: "0.14.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
+  assert.ok(viteConfig.includes("/;\\r?\\n  const SAVE_KEY/"));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.13.0-blue"));
-  assert.ok(readme.includes("安装 PokeCatch 助手 v0.13.0"));
-  assert.ok(readme.includes("6feeca1a11998e21279f90d07f8d0b2bf0436373/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.13.0"));
+  assert.ok(readme.includes("version-0.14.0-blue"));
+  assert.ok(changelog.includes("## 0.14.0"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -101,11 +102,85 @@ test("compatibility verifies known bundles and allows structurally compatible un
   const unknown = validateCompatibility();
   assert.equal(unknown.ok, true);
   assert.equal(unknown.verified, false);
-  assert.equal(unknown.expected, "ac708615ae, 7acad22262, 021c85dbba, 6e45170313");
+  assert.equal(unknown.expected, "c742526349, 7acad22262, 021c85dbba, 6e45170313");
   document.querySelector = (selector) => selector === "#timeline" ? null : {};
   const incompatible = validateCompatibility();
   assert.equal(incompatible.ok, false);
   assert.deepEqual(Array.from(incompatible.missing), ["#timeline"]);
+});
+
+test("Feather Badge scales Winona to the chapter's actual level range", () => {
+  const helpers = sourceFunctions(["chapter", "scaledBossTeam"], { DATA: data });
+  assert.deepEqual(
+    Array.from(helpers.scaledBossTeam(37), (enemy) => enemy.level),
+    [41, 41, 43, 44, 44, 47],
+  );
+  const feather = data.chapters[37];
+  assert.ok(feather.steps.some((step) => step.kind === "route" && step.name === "119号道路"));
+  assert.ok(feather.steps.some((step) => step.kind === "heal"));
+  assert.ok(feather.steps.some((step) => step.kind === "gym"));
+});
+
+test("chapter simulation carries damage between battles and honors healing nodes", () => {
+  const helpers = sourceFunctions([
+    "freshBattleUnit", "pickBattleAlly", "simulateDeterministicBattle", "simulateChapterTeam",
+  ], {
+    battleStats: (mon) => ({ hp: 10, spe: mon.uid ? 20 : 10 }),
+    bestDamageMove: (attacker) => ({ damage: attacker.uid ? 6 : 4 }),
+    chapterBattleSequence: () => [
+      { kind: "wild", name: "A", enemies: [{ id: 1, level: 1 }] },
+      { kind: "wild", name: "B", enemies: [{ id: 1, level: 1 }] },
+    ],
+  });
+  const save = {};
+  const team = [{ uid: "ally", id: 4, level: 10 }];
+  assert.equal(helpers.simulateChapterTeam(save, team, 0).remainingHp, 0.2);
+
+  const healed = sourceFunctions([
+    "freshBattleUnit", "pickBattleAlly", "simulateDeterministicBattle", "simulateChapterTeam",
+  ], {
+    battleStats: (mon) => ({ hp: 10, spe: mon.uid ? 20 : 10 }),
+    bestDamageMove: (attacker) => ({ damage: attacker.uid ? 6 : 4 }),
+    chapterBattleSequence: () => [
+      { kind: "wild", name: "A", enemies: [{ id: 1, level: 1 }] },
+      { kind: "heal", name: "Center" },
+      { kind: "wild", name: "B", enemies: [{ id: 1, level: 1 }] },
+    ],
+  });
+  assert.equal(healed.simulateChapterTeam(save, team, 0).remainingHp, 0.6);
+});
+
+test("whole-team chapter optimization can replace a greedy weak member", () => {
+  const helpers = sourceFunctions(["chapterSimulationScore", "optimizeChapterTeam"], {
+    chapter: () => ({ steps: [{ kind: "route" }] }),
+    scoreCandidate: (mon) => ({ score: mon.score }),
+    teamIdentity: (mon) => mon.id,
+    simulateChapterTeam: (_save, team) => {
+      const clear = team.some((mon) => mon.id === 7);
+      return { clear, reachedLeader: clear, completed: clear ? 10 : 8, total: 10, remainingHp: clear ? 0.5 : 0.1 };
+    },
+  });
+  const initial = [1, 2, 3, 4, 5, 6].map((id) => ({ uid: `m${id}`, id, score: 100 - id }));
+  const candidates = [...initial, { uid: "m7", id: 7, score: 1 }];
+  const optimized = helpers.optimizeChapterTeam(
+    { teamSets: { list: [[], [], [], [], initial.map((mon) => mon.uid)] } },
+    candidates,
+    initial,
+    37,
+    { enemies: [], levelWeight: 0, preferredLevel: null, targetLevel: 47 },
+    new Set(),
+  );
+  assert.equal(optimized.simulation.clear, true);
+  assert.ok(optimized.team.some((mon) => mon.id === 7));
+});
+
+test("battle debugging is opt-in, bounded, exportable, and separate from the game save", () => {
+  assert.ok(source.includes("debugBattle: false"));
+  assert.ok(source.includes('const DEBUG_DB_NAME = "pokecatch-assistant-debug"'));
+  assert.ok(source.includes('data-act="debug-export"'));
+  assert.ok(source.includes('data-act="debug-clear"'));
+  assert.ok(source.includes("[20, 50, 100]"));
+  assert.ok(source.includes("recordDebugDecision(plan, save, reason)"));
 });
 
 test("league chapters use the shared Pokemon League map entry", () => {
