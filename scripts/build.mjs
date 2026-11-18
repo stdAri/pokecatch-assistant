@@ -115,10 +115,39 @@ const compactWeather = {
   translate: weather.TRANSLATE,
   types: weather.TYPES,
 };
+const storyRegions = evaluateLiteral(extractLiteralFromPattern(/REGIONS:\[\{key:"kanto"/, "[", "]"));
 const chapterLiteral = extractLiteral("CHAPTERS:[", "[", "]");
 const unownLetters = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "!", "?"];
 const unownIds = unownLetters.map((_, index) => index === 0 ? 201 : 20100 + index);
 const chapters = evaluateLiteral(chapterLiteral, { a: { UNOWN: { ids: unownIds } } });
+const chapterRegions = [];
+let chapterRegion = "kanto";
+for (const chapter of chapters) {
+  chapterRegion = chapter.reg || chapterRegion;
+  chapterRegions.push(chapterRegion);
+}
+const storyRegionByKey = new Map(storyRegions.filter((region) => region.key).map((region) => [region.key, region]));
+const exactChapterAce = chapters.map((chapter, index) => {
+  if (chapter.ace != null) return chapter.ace;
+  const region = storyRegionByKey.get(chapterRegions[index]);
+  if (!region?.ace) return null;
+  const ordinal = chapters.filter((previous, previousIndex) => (
+    previousIndex < index && chapterRegions[previousIndex] === chapterRegions[index] && previous.ace == null
+  )).length;
+  return region.ace[0] + region.ace[1] * ordinal + (chapter.aceUp || 0);
+});
+const exactChapterCaps = chapters.map((chapter, index) => {
+  const margin = chapter.capMargin ?? (chapter.league ? 3 : 0);
+  let cap = Number(exactChapterAce[index] || 100) + margin;
+  const champion = (chapter.steps || []).some((step) => step.champion);
+  if (chapter.league && chapter.capMargin == null && !champion) {
+    const leagueMax = Math.max(...chapters.map((item, itemIndex) => (
+      item.league && chapterRegions[itemIndex] === chapterRegions[index] ? Number(exactChapterAce[itemIndex] || 0) : 0
+    )));
+    cap = Math.min(cap, leagueMax);
+  }
+  return Math.min(100, cap);
+});
 
 const context = { window: {} };
 vm.createContext(context);
@@ -145,6 +174,9 @@ const compactChapters = chapters.map((chapter, index) => {
     day: !!chapter.day,
     weather: chapter.weather,
     ace: chapter.ace || boss?.team?.reduce((max, [, level]) => Math.max(max, level), 0) || 1,
+    gym: steps.some((step) => step.kind === "gym"),
+    champion: steps.some((step) => step.champion),
+    levelCap: exactChapterCaps[index],
     routes: steps
       .map((step, stepIndex) => ({
         stepIndex,
@@ -265,6 +297,8 @@ const numericConfig = (key, fallback) => {
 };
 
 const battle = {
+  maxLevel: numericConfig("MAX_LEVEL", 100),
+  leagueDoneCap: numericConfig("LEAGUE_DONE_CAP", 100),
   levelGap: numericConfig("LEVEL_GAP", 1.06),
   damageRoll: 0.85,
   gymDamage: numericConfig("GYM_DAMAGE", 1.3),

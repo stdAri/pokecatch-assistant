@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.11.0
+// @version      0.12.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.11.0";
+  const VERSION = "0.12.0";
   const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "7acad22262", "021c85dbba", "6e45170313"]);
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
@@ -68,6 +68,9 @@
       storyLocked: "剧情尚未解锁",
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
+      autoBuddyTitle: "自动伙伴练级", autoBuddy: "自动选择并轮换伙伴宝可梦",
+      autoBuddyNote: "从当前地区队伍和电脑中选择综合能力最高、且未达到该地区徽章等级上限的宝可梦；达到上限或100级后自动选择下一只。战斗和事件进行中不会切换。",
+      buddyNone: "当前没有伙伴", buddyComplete: "当前地区所有可用宝可梦均已达到等级上限",
       trainingTitle: "培养候选池", trainingEnable: "启用候选池，自动配队优先使用已勾选的个体",
       trainingPower: "最低综合能力值", trainingPowerHelp: "综合能力值 = 当前形态六项种族值总和 × 异色加成 × 地下强化加成。它只用于筛选培养对象，不代表胜率；填 0 表示不设门槛。",
       trainingEligible: "只显示当前地区可出战成员", trainingSearch: "搜索名称或图鉴编号",
@@ -108,6 +111,9 @@
       storyLocked: "Story not yet unlocked",
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
+      autoBuddyTitle: "Automatic Buddy training", autoBuddy: "Automatically choose and rotate the Buddy",
+      autoBuddyNote: "Chooses the highest combined-stat Pokemon in the current region's team or PC that is below its regional badge level cap, then rotates at the cap or level 100. It never switches during battles or events.",
+      buddyNone: "No Buddy selected", buddyComplete: "Every usable Pokemon in the current region is at its level cap",
       trainingTitle: "Training candidate pool", trainingEnable: "Enable the pool; automatic teams prefer checked individuals",
       trainingPower: "Minimum combined stat value", trainingPowerHelp: "Combined stat value = the current form's six base stats × Shiny bonus × Underground rank bonus. It filters training candidates; it is not a win rate. Use 0 for no threshold.",
       trainingEligible: "Only show members usable in the current region", trainingSearch: "Search name or Pokédex number",
@@ -139,6 +145,7 @@
     language: "auto",
     activeTab: "push",
     lockTeam5: false,
+    autoBuddy: false,
     prioritizeDailyRaid: true,
     candidatePool: { enabled: false, minPower: 500, uids: [] },
     desktopNotifications: false,
@@ -166,6 +173,8 @@
     lastTeamSignature: "",
     lastTeamCheckAt: 0,
     lastBerryCheckAt: 0,
+    lastBuddyCheckAt: 0,
+    buddyStatus: "",
     lastRoamTries: {},
     lastDeaths: {},
     failureTeams: new Map(),
@@ -412,6 +421,41 @@
     if (mon.shiny) parts.push(language() === "en" ? `Shiny +${Math.round(DATA.shinyStatBonus * 100)}%` : `异色 +${Math.round(DATA.shinyStatBonus * 100)}%`);
     if (undergroundRank(mon)) parts.push(language() === "en" ? `Underground rank ${undergroundRank(mon)}` : `地下强化 ${undergroundRank(mon)} 档`);
     return parts.join(" · ");
+  }
+
+  function buddyLevelCap(save, mon) {
+    const maxLevel = DATA.battle?.maxLevel ?? 100;
+    const region = save?.link ? pokemonHomeRegion(mon) : "kanto";
+    const nextGym = DATA.chapters.find((item) => (
+      item.region === region
+      && item.index >= Number(save?.adv?.unlocked || 0)
+      && item.gym
+      && !(item.champion && item.boss?.badge && save?.adv?.badges?.includes(item.boss.badge))
+    ));
+    return Math.min(maxLevel, Number(nextGym?.levelCap || DATA.battle?.leagueDoneCap || maxLevel));
+  }
+
+  function buddyTrainingCandidates(save) {
+    return availableTeamCandidates(save)
+      .map((mon) => ({ mon, cap: buddyLevelCap(save, mon), power: combinedStatValue(mon) }))
+      .filter(({ mon, cap }) => mon.level < cap && mon.level < (DATA.battle?.maxLevel ?? 100))
+      .sort((a, b) => (
+        b.power - a.power
+        || Number(String(b.mon.uid) === String(save?.buddy?.uid)) - Number(String(a.mon.uid) === String(save?.buddy?.uid))
+        || b.mon.level - a.mon.level
+        || String(a.mon.uid).localeCompare(String(b.mon.uid))
+      ));
+  }
+
+  function bestBuddyCandidate(save) {
+    return buddyTrainingCandidates(save)[0] || null;
+  }
+
+  function buddyStatusText(save) {
+    const current = (save?.mons || []).find((mon) => String(mon.uid) === String(save?.buddy?.uid));
+    if (!current) return t("buddyNone");
+    const cap = buddyLevelCap(save, current);
+    return `${species(current.id)?.n || current.id} · Lv.${current.level}/${cap} · ${language() === "en" ? "combined" : "综合能力"} ${combinedStatValue(current)}`;
   }
 
   function normalizeCandidatePool(value) {
@@ -1184,6 +1228,76 @@
     root.textContent = language() === "en"
       ? `${progress.done}/${progress.total} · changed ${progress.changed} · skipped ${progress.skipped}${progress.cancelled ? " · cancelled" : ""}`
       : `${progress.done}/${progress.total} · 已更改${progress.changed} · 跳过${progress.skipped}${progress.cancelled ? " · 已取消" : ""}`;
+  }
+
+  async function revealPokemonCard(mon) {
+    await openScreen("team");
+    const quickPacing = { beforeMin: 180, beforeMax: 420, afterMin: 120, afterMax: 300 };
+    const evoFilter = document.querySelector("#pc-evo.on");
+    if (evoFilter) await pacedClick(evoFilter, language() === "en" ? "Evolution filter" : "进化筛选", quickPacing);
+    const shinyFilter = document.querySelector("#pc-shiny.on");
+    if (shinyFilter) await pacedClick(shinyFilter, language() === "en" ? "Shiny filter" : "异色筛选", quickPacing);
+    for (const filter of [...document.querySelectorAll("#pc-active button")]) {
+      await pacedClick(filter, language() === "en" ? "PC filter" : "电脑筛选按钮", quickPacing);
+    }
+    const search = document.querySelector("#pc-search");
+    let card = document.querySelector(`#team-slots [data-team-uid="${CSS.escape(String(mon.uid))}"]`);
+    if (!card && search) {
+      search.value = species(mon.id)?.n || "";
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      await jitter(180, 420);
+      card = await waitFor(
+        () => document.querySelector(`#pc-grid .pc-cell[data-uid="${CSS.escape(String(mon.uid))}"]`),
+        { label: language() === "en" ? "Buddy candidate in the PC" : "电脑中的伙伴候选" },
+      );
+    }
+    if (!card) throw new Error(`找不到伙伴候选：${species(mon.id)?.n || mon.id}`);
+    return { card, search, quickPacing };
+  }
+
+  async function setBuddyThroughGame(mon) {
+    const { card, search, quickPacing } = await revealPokemonCard(mon);
+    await pacedClick(card, `${species(mon.id)?.n || mon.id}${language() === "en" ? " details" : "详情"}`, quickPacing);
+    const detail = await waitFor(() => document.querySelector(".dexcard.v2"), { label: language() === "en" ? "Pokemon details" : "宝可梦详情" });
+    try {
+      const toggle = detail.querySelector(".dc-buddy");
+      if (!toggle) throw new Error("宝可梦详情中缺少伙伴按钮");
+      if (toggle.getAttribute("aria-pressed") !== "true") {
+        await pacedClick(toggle, language() === "en" ? "Set Buddy" : "设置伙伴", quickPacing);
+        await waitFor(
+          () => String(readSave().buddy?.uid) === String(mon.uid),
+          { label: language() === "en" ? "Buddy update" : "伙伴更新" },
+        );
+      }
+    } finally {
+      const close = detail.querySelector(".dc-x");
+      if (close) await pacedClick(close, language() === "en" ? "close details" : "关闭详情", quickPacing);
+      if (search?.value) {
+        search.value = "";
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+    }
+  }
+
+  async function manageBuddy(save) {
+    if (!settings.autoBuddy || save?.adv?.battle || save?.adv?.event) return false;
+    if (Date.now() - runtime.lastBuddyCheckAt < 5_000) return false;
+    runtime.lastBuddyCheckAt = Date.now();
+    const candidate = bestBuddyCandidate(save);
+    if (!candidate) {
+      runtime.buddyStatus = t("buddyComplete");
+      return false;
+    }
+    runtime.buddyStatus = buddyStatusText(save);
+    if (String(save.buddy?.uid) === String(candidate.mon.uid)) return false;
+    const changed = await exclusive(t("autoBuddyTitle"), () => setBuddyThroughGame(candidate.mon));
+    if (!changed) return false;
+    const current = readSave();
+    runtime.buddyStatus = buddyStatusText(current);
+    log(language() === "en"
+      ? `Automatic Buddy: ${species(candidate.mon.id)?.n || candidate.mon.id} · Lv.${candidate.mon.level}/${candidate.cap} · combined ${candidate.power}`
+      : `自动伙伴：${species(candidate.mon.id)?.n || candidate.mon.id} · Lv.${candidate.mon.level}/${candidate.cap} · 综合能力${candidate.power}`);
+    return true;
   }
 
   async function setDuplicateKeepForMon(mon, enabled) {
@@ -2306,6 +2420,10 @@
         renderStatus();
         return;
       }
+      if (!runtime.paused && !runtime.error && await manageBuddy(save)) {
+        renderStatus();
+        return;
+      }
       if (!runtime.paused && !runtime.error) await manageBerries(save);
       if (runtime.mode === "idle" || runtime.paused) {
         renderStatus();
@@ -2683,6 +2801,11 @@
           </div><div id="pca-training-active" class="pca-note"></div>
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "team" ? "active" : ""}" role="tabpanel" data-tabpanel="team">
+          <div class="pca-card"><h4>${t("autoBuddyTitle")}</h4>
+          <label class="pca-row"><input type="checkbox" data-setting="autoBuddy" ${settings.autoBuddy ? "checked" : ""}>${t("autoBuddy")}</label>
+          <div id="pca-buddy-status" class="pca-note">${t("buddyNone")}</div>
+          <div class="pca-note">${t("autoBuddyNote")}</div>
+          </div>
           <div class="pca-card"><h4>${t("teamCopy")}</h4>
           <label class="pca-row"><input type="checkbox" data-setting="lockTeam5" ${settings.lockTeam5 ? "checked" : ""}>${t("lockTeam")}</label>
           <div class="pca-row"><select class="pca-select pca-grow" id="pca-copy-from">${[0,1,2,3,4].map((i)=>`<option value="${i}">${t("team")} ${i+1}</option>`).join("")}</select><span>→</span><select class="pca-select pca-grow" id="pca-copy-to">${[0,1,2,3,4].map((i)=>`<option value="${i}" ${i===4?"selected":""}>${t("team")} ${i+1}</option>`).join("")}</select><button class="pca-btn" data-act="copy">${t("copy")}</button></div>
@@ -2801,6 +2924,11 @@
       const setting = event.target.dataset.setting;
       if (setting) {
         settings[setting] = event.target.checked;
+        if (setting === "autoBuddy") {
+          runtime.lastBuddyCheckAt = 0;
+          runtime.buddyStatus = "";
+          if (settings.autoBuddy) queueMicrotask(() => tick());
+        }
         if (setting === "autoPushForCollection") {
           runtime.collectionQueueSignature = "";
           if (!settings.autoPushForCollection && runtime.targetPlan?.unlockForCollection) {
@@ -3083,6 +3211,8 @@
     });
     panel.querySelectorAll('[data-status="buffs"]').forEach((node) => { node.textContent = activeBuffs.join(language() === "en" ? ", " : "、") || "—"; });
     panel.querySelectorAll('[data-status="team"]').forEach((node) => { node.textContent = runtime.teamStatus === "未生成" ? t("notGenerated") : runtime.teamStatus; });
+    const buddyStatus = panel.querySelector("#pca-buddy-status");
+    if (buddyStatus) buddyStatus.textContent = runtime.buddyStatus || buddyStatusText(save);
     panel.querySelectorAll("[data-berry-stock]").forEach((node) => { node.textContent = String(save?.items?.[node.dataset.berryStock] || 0); });
     panel.querySelector("#pca-error").textContent = runtime.error ? `${runtime.error.phase}: ${runtime.error.observed}\n${t("suggestion")}: ${runtime.error.suggestion}` : `${t("noError")} · ${t("game")} ${gameBuild()} · ${t("data")} ${DATA.appBuild}`;
     renderRoamingPriority();

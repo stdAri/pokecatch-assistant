@@ -56,24 +56,26 @@ test("generated data matches the inspected game build", () => {
   assert.equal(data.species[4].n, "小火龙");
   assert.deepEqual(data.species[4].t, ["fire"]);
   assert.equal(data.evolutions[273][0].to, 274);
+  assert.equal(data.chapters[0].gym, true);
+  assert.equal(data.chapters[0].levelCap, 20);
+  assert.equal(data.battle.maxLevel, 100);
   assert.equal(data.battle.levelGap, 1.06);
   assert.equal(data.battle.gymDamage, 1.3);
 });
 
-test("userscript and development metadata share version 0.11.0", () => {
-  assert.equal(packageJson.version, "0.11.0");
-  assert.ok(source.includes("// @version      0.11.0"));
-  assert.ok(source.includes('const VERSION = "0.11.0"'));
-  assert.ok(viteConfig.includes('version: "0.11.0"'));
+test("userscript and development metadata share version 0.12.0", () => {
+  assert.equal(packageJson.version, "0.12.0");
+  assert.ok(source.includes("// @version      0.12.0"));
+  assert.ok(source.includes('const VERSION = "0.12.0"'));
+  assert.ok(viteConfig.includes('version: "0.12.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.11.0-blue"));
-  assert.ok(readme.includes("安装 PokeCatch 助手 v0.11.0"));
-  assert.ok(readme.includes("864730eac87070a1bd77958aa5d73cb43a933d61/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.11.0"));
+  assert.ok(readme.includes("version-0.12.0-blue"));
+  assert.ok(readme.includes("安装 PokeCatch 助手 v0.12.0"));
+  assert.ok(changelog.includes("## 0.12.0"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -832,6 +834,38 @@ test("deterministic battle model rejects an obviously dominated Seedot", () => {
   const plan = helpers.recommendTeam({ ...save, team: [], teamSets: { list: [[], [], [], [], []] } }, [{ id: 95, level: 15 }], { targetLevel: 36 });
   assert.equal(plan.mons.some((mon) => mon.uid === "seedot"), false);
   assert.equal(plan.mons.some((mon) => mon.uid === "bulbasaur"), true);
+});
+
+test("automatic Buddy training follows badge caps and rotates by combined stats", () => {
+  const helpers = sourceFunctions([
+    "species", "baseStatTotal", "undergroundRank", "combinedStatMultiplier", "combinedStatValue",
+    "pokemonHomeRegion", "isMonAvailableInCurrentRegion", "availableTeamCandidates", "buddyLevelCap",
+    "buddyTrainingCandidates", "bestBuddyCandidate",
+  ], { DATA: data });
+  const charizard = { uid: "charizard", id: 6, level: 19, shiny: false, rank: 0, reg: "kanto" };
+  const blastoise = { uid: "blastoise", id: 9, level: 18, shiny: false, rank: 0, reg: "kanto" };
+  const venusaur = { uid: "venusaur", id: 3, level: 10, shiny: false, rank: 0, reg: "kanto" };
+  const mewtwo = { uid: "mewtwo", id: 150, level: 20, shiny: false, rank: 0, reg: "kanto" };
+  const save = {
+    adv: { unlocked: 0, badges: [] },
+    buddy: { uid: "venusaur", ko: 2 },
+    mons: [venusaur, blastoise, charizard, mewtwo],
+  };
+
+  assert.equal(helpers.buddyLevelCap(save, charizard), 20);
+  assert.equal(helpers.bestBuddyCandidate(save).mon.uid, "charizard");
+  assert.equal(helpers.buddyTrainingCandidates(save).some(({ mon }) => mon.uid === "mewtwo"), false);
+
+  charizard.level = 20;
+  assert.equal(helpers.bestBuddyCandidate(save).mon.uid, "blastoise");
+  save.adv.unlocked = 1;
+  assert.equal(helpers.buddyLevelCap(save, charizard), 24);
+  assert.equal(helpers.bestBuddyCandidate(save).mon.uid, "mewtwo");
+
+  assert.ok(source.includes('data-setting="autoBuddy"'));
+  assert.ok(source.includes('detail.querySelector(".dc-buddy")'));
+  assert.ok(source.includes("save?.adv?.battle || save?.adv?.event"));
+  assert.ok(source.includes("String(readSave().buddy?.uid) === String(mon.uid)"));
 });
 
 test("training pool adds combined stat filtering without replacing main features", () => {
