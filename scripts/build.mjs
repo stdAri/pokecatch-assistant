@@ -89,6 +89,7 @@ const encounters = evaluateLiteral(extractLiteral("a.ENCOUNTERS={", "{", "}"));
 const habitats = evaluateLiteral(extractLiteral("a.HABITATS={", "{", "}"));
 const weather = evaluateLiteral(extractLiteral("WEATHER:{", "{", "}"));
 const roamingWeather = evaluateLiteral(extractLiteral("MIN_LEVEL:100,WEATHER:{", "{", "}"));
+const roamingGroups = evaluateLiteral(extractLiteral("ROAMING:{GROUPS:[", "[", "]"));
 const shinyStatBonus = Number(bundle.match(/SHINY_STAT_BONUS:([.\d]+)/)?.[1]);
 const undergroundStats = bundle.match(/RANK_MAX:(\d+),RANK_STAT:([.\d]+)/);
 if (!Number.isFinite(shinyStatBonus) || !undergroundStats) throw new Error("stat bonus constants not found");
@@ -271,6 +272,8 @@ const compactChapters = chapters.map((chapter, index) => {
         night: !!step.night,
         chance: step.chance || 1,
         caught: step.caught || [],
+        ...(step.needs ? { needs: step.needs, needN: step.needN || 1 } : {}),
+        ...(step.after ? { after: step.after } : {}),
         once: step.once || null,
         level: step.level || null,
         rate: step.rate || null,
@@ -401,18 +404,27 @@ const compactCondition = (condition) => condition ? {
   ...(condition.list ? { list: condition.list.map(compactCondition) } : {}),
 } : null;
 
-const compactSpecialZones = specialZones.map((zone) => ({
-  id: zone.id,
-  region: zone.region,
-  zone: translate(zone.zone),
-  sourceZone: zone.zone,
-  areas: zone.areas || [],
-  dex: zone.dex || null,
-  level: zone.level || 100,
-  badge: zone.badge || null,
-  badgeName: zone.badge ? translate(zone.badge) : null,
-  condition: compactCondition(zone.cond),
-}));
+const compactSpecialZones = specialZones.map((zone) => {
+  const anchor = zone.at ? compactChapters.find((chapter) => (
+    chapter.region === zone.region && chapter.sourceName === zone.at
+  ))?.index : undefined;
+  return {
+    id: zone.id,
+    region: zone.region,
+    zone: translate(zone.zone),
+    sourceZone: zone.zone,
+    areas: zone.areas || [],
+    dex: zone.dex || null,
+    level: zone.level || 100,
+    badge: zone.badge || null,
+    badgeName: zone.badge ? translate(zone.badge) : null,
+    condition: compactCondition(zone.cond),
+    ...(anchor != null ? { anchor } : {}),
+    ...(zone.when ? { when: zone.when } : {}),
+    ...(zone.moon ? { moon: zone.moon } : {}),
+    ...(zone.forms ? { forms: zone.forms } : {}),
+  };
+});
 
 const appMatch = bundlePath.match(/app\.([^.]+)\.js$/);
 const langMatch = langPath.match(/lang-zh-Hans\.([^.]+)\.js$/);
@@ -428,6 +440,7 @@ const gameData = {
   habitats,
   weather: compactWeather,
   roamingWeather,
+  roamingGroups,
   specialZones: compactSpecialZones,
   shinyStatBonus,
   rankMax: Number(undergroundStats[1]),
