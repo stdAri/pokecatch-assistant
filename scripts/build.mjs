@@ -1,15 +1,27 @@
 import fs from "node:fs";
+import os from "node:os";
 import vm from "node:vm";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const [, , bundlePath, langPath] = process.argv;
 if (!bundlePath || !langPath) {
   throw new Error("usage: node scripts/build.mjs <app-bundle.js> <lang-zh-Hans.js>");
 }
 
-const bundle = fs.readFileSync(bundlePath, "utf8");
-const langSource = fs.readFileSync(langPath, "utf8");
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
+async function readBuildSource(inputPath) {
+  if (fs.existsSync(inputPath)) return fs.readFileSync(inputPath, "utf8");
+  const filename = path.basename(inputPath).replace(/^pokecatch-/, "");
+  const cached = path.join(os.tmpdir(), "pokecatch-battle-model", path.basename(inputPath));
+  if (fs.existsSync(cached)) return fs.readFileSync(cached, "utf8");
+  const response = await fetch(`https://pokecatch-online.pages.dev/bundle/${filename}`);
+  if (!response.ok) throw new Error(`failed to download ${filename}: HTTP ${response.status}`);
+  return response.text();
+}
+
+const bundle = await readBuildSource(bundlePath);
+const langSource = await readBuildSource(langPath);
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const template = fs.readFileSync(path.join(root, "src/template.user.js"), "utf8");
 
 function extractLiteral(marker, open, close) {
@@ -71,6 +83,7 @@ function evaluateLiteral(source, args = {}) {
 
 const pokedex = evaluateLiteral(extractLiteral("a.POKEDEX=[", "[", "]"));
 const moves = evaluateLiteral(extractLiteral("a.MOVES={", "{", "}"));
+const evolutions = evaluateLiteral(extractLiteral("a.EVOLUTIONS={", "{", "}"));
 const typeChart = evaluateLiteral(extractLiteral("a.TYPE_CHART={", "{", "}"));
 const encounters = evaluateLiteral(extractLiteral("a.ENCOUNTERS={", "{", "}"));
 const habitats = evaluateLiteral(extractLiteral("a.HABITATS={", "{", "}"));
@@ -238,6 +251,28 @@ const compactMoves = Object.fromEntries(
   Object.entries(moves).map(([key, move]) => [key, [move.type, move.power || 0, move.acc || 100, move.cat || "status"]]),
 );
 
+const compactEvolutions = Object.fromEntries(
+  Object.entries(evolutions).map(([id, options]) => [id, options.map((option) => ({
+    to: option.to,
+    ...(option.level != null ? { level: option.level } : {}),
+    ...(option.item ? { item: option.item } : {}),
+  }))]),
+);
+
+const numericConfig = (key, fallback) => {
+  const match = bundle.match(new RegExp(`${key}:([.\\d]+)`));
+  return match ? Number(match[1]) : fallback;
+};
+
+const battle = {
+  levelGap: numericConfig("LEVEL_GAP", 1.06),
+  damageRoll: 0.85,
+  gymDamage: numericConfig("GYM_DAMAGE", 1.3),
+  hpLevelScale: numericConfig("HP_LEVEL_SCALE", 1.5),
+  hpLevelMax: numericConfig("HP_LEVEL_MAX", 2.5),
+  hpBoost: numericConfig("HP_BOOST", 1.1),
+};
+
 const compactCondition = (condition) => condition ? {
   kind: condition.kind,
   ...(condition.ids ? { ids: condition.ids } : {}),
@@ -275,6 +310,7 @@ const gameData = {
   langBuild: langMatch?.[1] || "unknown",
   species: compactSpecies,
   moves: compactMoves,
+  evolutions: compactEvolutions,
   typeChart,
   chapters: compactChapters,
   encounters,
@@ -285,6 +321,7 @@ const gameData = {
   shinyStatBonus,
   rankMax: Number(undergroundStats[1]),
   rankStatMultiplier: Number(undergroundStats[2]),
+  battle,
 };
 
 if (!template.includes("/*__GAME_DATA__*/")) throw new Error("template placeholder missing");

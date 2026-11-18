@@ -8,10 +8,10 @@ const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import
 const viteConfig = fs.readFileSync(new URL("../vite.config.mjs", import.meta.url), "utf8");
 const marker = "const DATA = ";
 const start = source.indexOf(marker) + marker.length;
-const end = source.indexOf(";\n  const SAVE_KEY", start);
+const end = source.indexOf(";", start);
 const data = JSON.parse(source.slice(start, end));
 const textStart = source.indexOf("const TEXT = ") + "const TEXT = ".length;
-const textEnd = source.indexOf(";\n\n  const DEFAULT_SETTINGS", textStart);
+const textEnd = source.lastIndexOf(";", source.indexOf("const DEFAULT_SETTINGS", textStart));
 const uiText = vm.runInThisContext(`(${source.slice(textStart, textEnd)})`);
 
 function sourceFunctionText(name) {
@@ -50,27 +50,29 @@ function sourceFunctions(names, context = {}) {
 }
 
 test("generated data matches the inspected game build", () => {
-  assert.equal(data.appBuild, "7acad22262");
-  assert.equal(data.langBuild, "e31962e671");
+  assert.equal(data.appBuild, "ac708615ae");
+  assert.equal(data.langBuild, "d925dec528");
   assert.equal(Object.keys(data.species).length, 721);
   assert.equal(data.species[4].n, "小火龙");
   assert.deepEqual(data.species[4].t, ["fire"]);
+  assert.equal(data.evolutions[273][0].to, 274);
+  assert.equal(data.battle.levelGap, 1.06);
+  assert.equal(data.battle.gymDamage, 1.3);
 });
 
-test("userscript and development metadata share version 0.10.1", () => {
-  assert.equal(packageJson.version, "0.10.1");
-  assert.ok(source.includes("// @version      0.10.1"));
-  assert.ok(source.includes('const VERSION = "0.10.1"'));
-  assert.ok(viteConfig.includes('version: "0.10.1"'));
+test("userscript and development metadata share version 0.11.0", () => {
+  assert.equal(packageJson.version, "0.11.0");
+  assert.ok(source.includes("// @version      0.11.0"));
+  assert.ok(source.includes('const VERSION = "0.11.0"'));
+  assert.ok(viteConfig.includes('version: "0.11.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.10.1-blue"));
-  assert.ok(readme.includes("安装 PokeCatch 助手 v0.10.1"));
-  assert.ok(readme.includes("31bd86e546ed27e760666243df5f6dc7316244af/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.10.1"));
+  assert.ok(readme.includes("version-0.11.0-blue"));
+  assert.ok(readme.includes("安装 PokeCatch 助手 v0.11.0"));
+  assert.ok(changelog.includes("## 0.11.0"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -80,7 +82,7 @@ test("compatibility verifies known bundles and allows structurally compatible un
   };
   const { validateCompatibility } = sourceFunctions(["gameBuild", "validateCompatibility"], {
     DATA: data,
-    COMPATIBLE_APP_BUILDS: new Set([data.appBuild, "021c85dbba", "6e45170313"]),
+    COMPATIBLE_APP_BUILDS: new Set([data.appBuild, "7acad22262", "021c85dbba", "6e45170313"]),
     document,
   });
   assert.deepEqual(
@@ -95,7 +97,7 @@ test("compatibility verifies known bundles and allows structurally compatible un
   const unknown = validateCompatibility();
   assert.equal(unknown.ok, true);
   assert.equal(unknown.verified, false);
-  assert.equal(unknown.expected, "7acad22262, 021c85dbba, 6e45170313");
+  assert.equal(unknown.expected, "ac708615ae, 7acad22262, 021c85dbba, 6e45170313");
   document.querySelector = (selector) => selector === "#timeline" ? null : {};
   const incompatible = validateCompatibility();
   assert.equal(incompatible.ok, false);
@@ -217,7 +219,8 @@ test("new regions accept missing presets and only recommend locally available Po
   assert.equal(pokemonHomeRegion(mons[1]), "johto");
   assert.equal(requiredTeamSize(save), 4);
   assert.equal(requiredTeamSize({ ...save, link: { ...save.link, side: "from" } }), 2);
-  assert.ok(source.includes("const candidates = teamCandidatesForRecommendation(save);"));
+  assert.ok(source.includes("const rawCandidates = teamCandidatesForRecommendation(save);"));
+  assert.ok(source.includes("removeClearlyDominatedCandidates(save, rawCandidates"));
   assert.ok(source.includes("const fullTeamSize = requiredTeamSize(save);"));
 });
 
@@ -234,6 +237,7 @@ test("automatic teams never recommend duplicate species or mutually exclusive fo
     preferredTeamCandidates: () => [],
     teamIdentity,
     scoreCandidate: (mon) => ({ score: mon.score, reason: String(mon.score) }),
+    removeClearlyDominatedCandidates: (_save, candidates) => candidates,
     species: (id) => data.species[id],
   });
   const plan = recommendTeam({
@@ -282,6 +286,7 @@ test("training candidates are preferred and remaining slots use other available 
     DEFAULT_LEVEL_WEIGHT: 0.22,
     enemyProfiles: () => [],
     scoreCandidate: (mon) => ({ score: mon.score, reason: String(mon.score) }),
+    removeClearlyDominatedCandidates: (_save, candidates) => candidates,
   });
   const plan = recommendTeam({
     team: [],
@@ -317,7 +322,7 @@ test("Unova Victory Road includes the new midpoint Pokemon Center split", () => 
   const victoryRoad = data.chapters[76];
   const routes = victoryRoad.routes.filter((route) => route.sourceName === "Route Victoire");
   assert.equal(routes.length, 2);
-  assert.deepEqual(routes.map((route) => [route.wild, route.trainers]), [[4, 3], [2, 1]]);
+  assert.deepEqual(routes.map((route) => [route.wild, route.trainers]), [[4, 3], [3, 3]]);
   assert.deepEqual(routes.map((route) => route.stepIndex), [2, 4]);
   assert.ok(routes[1].areas.includes("bw:unova-victory-road-outside"));
 });
@@ -788,8 +793,44 @@ test("collection team recommendations give current level a higher weight", () =>
   assert.ok(source.includes("const COLLECTION_LEVEL_WEIGHT = 1.2;"));
   assert.ok(source.includes("Math.min(100, mon.level) * levelWeight"));
   assert.ok(source.includes("recommendRoamingTeam(readSave(), roamer.id)"));
-  assert.ok(source.includes("recommendTeam(targetSave, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT })"));
+  assert.ok(source.includes("levelWeight: COLLECTION_LEVEL_WEIGHT,"));
+  assert.ok(source.includes("targetLevel: chapter(next.chapter)?.ace"));
   assert.ok(source.includes("const levelWeight = storyTarget ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT"));
+});
+
+test("deterministic battle model rejects an obviously dominated Seedot", () => {
+  const helperNames = [
+    "species", "baseStatTotal", "undergroundRank", "combinedStatMultiplier", "combinedStatValue", "combinedStatNote",
+    "normalizeCandidatePool", "pokemonHomeRegion", "isMonAvailableInCurrentRegion", "availableTeamCandidates",
+    "teamIdentity", "preferredTeamCandidates", "teamCandidatesForRecommendation", "typeEffect", "learnedMoves",
+    "battleStats", "effectiveAccuracy", "deterministicDamage", "bestDamageMove", "evolutionAvailable",
+    "projectedSpeciesId", "enemyProfiles", "duelEstimate", "battleProfile", "removeClearlyDominatedCandidates",
+    "roamingLevelPriorityScore", "scoreCandidate", "recommendTeam",
+  ];
+  const helpers = sourceFunctions(helperNames, {
+    DATA: data,
+    DEFAULT_LEVEL_WEIGHT: 0.22,
+    settings: { candidatePool: { enabled: false, minPower: 0, uids: [] } },
+    language: () => "zh",
+  });
+  const seedot = { uid: "seedot", id: 273, level: 20, shiny: false, rank: 0 };
+  const bulbasaur = { uid: "bulbasaur", id: 1, level: 20, shiny: false, rank: 0 };
+  const fillers = [4, 7, 25, 66, 74].map((id) => ({ uid: `filler-${id}`, id, level: 20, shiny: false, rank: 0 }));
+  const save = { items: {}, mons: [seedot, bulbasaur, ...fillers] };
+  const enemies = helpers.enemyProfiles([{ id: 95, level: 15 }], 15);
+  const kept = helpers.removeClearlyDominatedCandidates(save, save.mons, enemies, 36);
+
+  assert.equal(helpers.combinedStatValue(seedot), 220);
+  assert.equal(helpers.projectedSpeciesId(save, seedot, 36), 274, "without a Leaf Stone, Seedot only projects to Nuzleaf");
+  assert.equal(helpers.projectedSpeciesId(save, bulbasaur, 36), 3);
+  assert.equal(kept.some((mon) => mon.uid === "seedot"), false);
+  assert.equal(kept.some((mon) => mon.uid === "bulbasaur"), true);
+  assert.equal(helpers.effectiveAccuracy(50), 2 / 3, "a miss is followed by a guaranteed hit");
+  assert.deepEqual(helpers.duelEstimate(bulbasaur, enemies[0]), helpers.duelEstimate(bulbasaur, enemies[0]));
+
+  const plan = helpers.recommendTeam({ ...save, team: [], teamSets: { list: [[], [], [], [], []] } }, [{ id: 95, level: 15 }], { targetLevel: 36 });
+  assert.equal(plan.mons.some((mon) => mon.uid === "seedot"), false);
+  assert.equal(plan.mons.some((mon) => mon.uid === "bulbasaur"), true);
 });
 
 test("training pool adds combined stat filtering without replacing main features", () => {

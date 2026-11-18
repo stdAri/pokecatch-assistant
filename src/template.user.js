@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.10.1
+// @version      0.11.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,8 +21,8 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.10.1";
-  const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "021c85dbba", "6e45170313"]);
+  const VERSION = "0.11.0";
+  const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "7acad22262", "021c85dbba", "6e45170313"]);
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
   const COLLECTION_QUEUE_LIMIT = 5;
@@ -435,8 +435,136 @@
       .map(([, key]) => ({ key, type: DATA.moves[key][0], power: DATA.moves[key][1], accuracy: DATA.moves[key][2] }));
   }
 
-  function enemyProfiles(enemyIds) {
-    return enemyIds.map((id) => species(id)).filter(Boolean);
+  function battleStats(mon, speciesId = mon.id, level = mon.level) {
+    const meta = species(speciesId);
+    if (!meta) return null;
+    const normalizedLevel = Math.max(1, Number(level) || 1);
+    const multiplier = combinedStatMultiplier(mon);
+    const stat = (index) => Math.floor((Math.floor(2 * meta.s[index] * normalizedLevel / 100) + 5) * multiplier);
+    const baseHp = Math.floor((Math.floor(2 * meta.s[0] * normalizedLevel / 100) + normalizedLevel + 10) * multiplier);
+    const hpScale = Math.min(DATA.battle?.hpLevelMax ?? 2.5, 1 + (DATA.battle?.hpLevelScale ?? 1.5) * normalizedLevel / 100);
+    return {
+      hp: Math.floor(baseHp * hpScale * (DATA.battle?.hpBoost ?? 1.1)),
+      atk: stat(1),
+      def: stat(2),
+      spa: stat(3),
+      spd: stat(4),
+      spe: stat(5),
+    };
+  }
+
+  function effectiveAccuracy(accuracy) {
+    const chance = Math.max(0, Math.min(1, Number(accuracy || 100) / 100));
+    return chance >= 1 ? 1 : 1 / (2 - chance);
+  }
+
+  function deterministicDamage(attacker, defender, move, options) {
+    const enemy = Boolean(options?.enemy);
+    const attackMeta = species(attacker.id);
+    const defenderMeta = species(defender.id);
+    const attackStats = battleStats(attacker);
+    const defenderStats = battleStats(defender);
+    if (!attackMeta || !defenderMeta || !attackStats || !defenderStats || move.power <= 0) return 0;
+    const physical = DATA.moves[move.key]?.[3] === "phys";
+    const attack = physical ? attackStats.atk : attackStats.spa;
+    const defense = Math.max(1, physical ? defenderStats.def : defenderStats.spd);
+    const stab = attackMeta.t.includes(move.type) ? 1.5 : 1;
+    const effectiveness = typeEffect(move.type, defenderMeta.t);
+    if (effectiveness === 0) return 0;
+    const base = (2 * attacker.level / 5 + 2) * move.power * attack / defense / 50 + 2;
+    const levelGap = (DATA.battle?.levelGap ?? 1.06) ** (attacker.level - defender.level);
+    const roll = DATA.battle?.damageRoll ?? 0.85;
+    const enemyMultiplier = enemy ? (DATA.battle?.gymDamage ?? 1.3) : 1;
+    return Math.max(1, Math.floor(base * stab * effectiveness * levelGap * roll * enemyMultiplier))
+      * effectiveAccuracy(move.accuracy);
+  }
+
+  function bestDamageMove(attacker, defender, options) {
+    return learnedMoves(species(attacker.id), attacker.level)
+      .map((move) => ({ move, damage: deterministicDamage(attacker, defender, move, options) }))
+      .sort((a, b) => b.damage - a.damage || b.move.accuracy - a.move.accuracy || b.move.power - a.move.power)[0]
+      || { move: null, damage: 1 };
+  }
+
+  function evolutionAvailable(save, option, targetLevel) {
+    if (option.level != null) return targetLevel >= option.level;
+    if (option.item) return Number(save?.items?.[option.item] || 0) > 0;
+    return false;
+  }
+
+  function projectedSpeciesId(save, mon, targetLevel) {
+    let id = Number(mon.id);
+    const visited = new Set([id]);
+    for (let depth = 0; depth < 4; depth += 1) {
+      const options = (DATA.evolutions?.[id] || [])
+        .filter((option) => evolutionAvailable(save, option, targetLevel))
+        .filter((option) => species(option.to) && !visited.has(Number(option.to)))
+        .sort((a, b) => baseStatTotal(b.to) - baseStatTotal(a.to));
+      if (!options.length) break;
+      id = Number(options[0].to);
+      visited.add(id);
+    }
+    return id;
+  }
+
+  function enemyProfiles(enemyTargets, fallbackLevel = 1) {
+    return enemyTargets.map((target) => {
+      const id = Number(typeof target === "object" ? target.id : target);
+      const meta = species(id);
+      if (!meta) return null;
+      return {
+        id,
+        level: Math.max(1, Number(typeof target === "object" ? target.level : fallbackLevel) || fallbackLevel),
+        meta,
+      };
+    }).filter(Boolean);
+  }
+
+  function duelEstimate(mon, enemy) {
+    const foe = { id: enemy.id, level: enemy.level, shiny: false, rank: 0 };
+    const allyStats = battleStats(mon);
+    const enemyStats = battleStats(foe);
+    const outgoing = bestDamageMove(mon, foe).damage;
+    const incoming = bestDamageMove(foe, mon, { enemy: true }).damage;
+    const turnsToWin = Math.ceil(enemyStats.hp / Math.max(1, outgoing));
+    const turnsToLose = Math.ceil(allyStats.hp / Math.max(1, incoming));
+    const movesFirst = allyStats.spe >= enemyStats.spe;
+    const clears = turnsToWin < turnsToLose || (turnsToWin === turnsToLose && movesFirst);
+    const tempo = turnsToLose - turnsToWin + (movesFirst ? 0.25 : 0);
+    return { clears, tempo, turnsToWin, turnsToLose, outgoing, incoming };
+  }
+
+  function battleProfile(mon, enemies) {
+    const duels = enemies.map((enemy) => duelEstimate(mon, enemy));
+    if (!duels.length) return { score: 0, clears: 0, worstTempo: 0, duels: [] };
+    const clears = duels.filter((duel) => duel.clears).length;
+    const averageTempo = duels.reduce((sum, duel) => sum + duel.tempo, 0) / duels.length;
+    const worstTempo = Math.min(...duels.map((duel) => duel.tempo));
+    return { score: clears * 70 + averageTempo * 18 + worstTempo * 8, clears, worstTempo, duels };
+  }
+
+  function removeClearlyDominatedCandidates(save, candidates, enemies, targetLevel) {
+    if (candidates.length <= 6 || !enemies.length) return candidates;
+    const profiles = new Map(candidates.map((mon) => [mon.uid, battleProfile(mon, enemies)]));
+    return candidates.filter((candidate) => !candidates.some((other) => {
+      if (other.uid === candidate.uid || teamIdentity(other) === teamIdentity(candidate)) return false;
+      const candidateMeta = species(candidate.id);
+      const otherMeta = species(other.id);
+      if (!candidateMeta || !otherMeta || !otherMeta.t.includes(candidateMeta.t[0])) return false;
+      const candidatePower = combinedStatValue(candidate);
+      const otherPower = combinedStatValue(other);
+      if (otherPower < candidatePower * 1.25) return false;
+      const candidateFuture = baseStatTotal(projectedSpeciesId(save, candidate, targetLevel));
+      const otherFuture = baseStatTotal(projectedSpeciesId(save, other, targetLevel));
+      if (otherFuture < candidateFuture) return false;
+      const candidateDuels = profiles.get(candidate.uid).duels;
+      const otherDuels = profiles.get(other.uid).duels;
+      return otherDuels.every((duel, index) => (
+        duel.outgoing >= candidateDuels[index].outgoing
+        && duel.incoming <= candidateDuels[index].incoming * 1.1
+        && Number(duel.clears) >= Number(candidateDuels[index].clears)
+      ));
+    }));
   }
 
   function roamingLevelPriorityScore(level, preferredLevel = null) {
@@ -447,48 +575,57 @@
       : -(preferredLevel - normalized) * 20;
   }
 
-  function scoreCandidate(mon, enemies, continuitySet, selected, levelWeight = DEFAULT_LEVEL_WEIGHT, preferredLevel = null) {
+  function scoreCandidate(mon, enemies, continuitySet, selected, levelWeight = DEFAULT_LEVEL_WEIGHT, preferredLevel = null, save = null, targetLevel = null) {
     const meta = species(mon.id);
     if (!meta) return { score: -Infinity, reason: "缺少资料" };
     const stats = meta.s;
     const power = combinedStatValue(mon);
     const statMultiplier = combinedStatMultiplier(mon);
+    const enemyList = enemies.length ? enemies : enemyProfiles([{ id: 1, level: mon.level }]);
+    const normalizedTargetLevel = Math.max(mon.level, Number(targetLevel) || mon.level);
+    const projectedId = projectedSpeciesId(save, mon, normalizedTargetLevel);
+    const projectedPower = baseStatTotal(projectedId) * statMultiplier;
+    const battle = battleProfile(mon, enemyList);
     const moves = learnedMoves(meta, mon.level);
-    const enemyList = enemies.length ? enemies : [{ t: ["normal"], s: [50, 50, 50, 50, 50, 50] }];
 
     const offense = enemyList.reduce((sum, enemy) => {
       const best = moves.reduce((max, move) => {
         const stab = meta.t.includes(move.type) ? 1.5 : 1;
-        return Math.max(max, move.power * move.accuracy / 100 * stab * typeEffect(move.type, enemy.t));
+        return Math.max(max, move.power * effectiveAccuracy(move.accuracy) * stab * typeEffect(move.type, enemy.meta.t));
       }, 20);
       return sum + best;
     }, 0) / enemyList.length;
 
     const defense = enemyList.reduce((sum, enemy) => {
-      const danger = Math.max(...enemy.t.map((type) => typeEffect(type, meta.t)), 1);
+      const danger = Math.max(...enemy.meta.t.map((type) => typeEffect(type, meta.t)), 1);
       return sum + 1 / danger;
     }, 0) / enemyList.length;
 
     const samePrimary = selected.filter((item) => species(item.id)?.t?.[0] === meta.t[0]).length;
-    const continuity = continuitySet.has(mon.uid) ? 18 : 0;
+    const continuity = continuitySet.has(mon.uid) ? 6 : 0;
     const levelContribution = Math.min(100, mon.level) * levelWeight;
     const preferredLevelScore = roamingLevelPriorityScore(mon.level, preferredLevel);
-    const score = power * 0.21 + offense * 0.82 + defense * 34 + stats[5] * statMultiplier * 0.08
-      + levelContribution + preferredLevelScore + continuity - samePrimary * 16;
+    const score = power * 0.28 + projectedPower * 0.12 + offense * 0.45 + defense * 18
+      + stats[5] * statMultiplier * 0.05 + battle.score
+      + levelContribution + preferredLevelScore + continuity - samePrimary * 10;
     return {
       score,
-      reason: `${language() === "en" ? "Combined stats" : "综合能力"}${power}（${combinedStatNote(mon)}） · ${language() === "en" ? "offense" : "克制"}${offense.toFixed(0)} · ${language() === "en" ? "defense" : "防守"}${defense.toFixed(2)} · Lv.${mon.level}`,
+      reason: `${language() === "en" ? "Combined stats" : "综合能力"}${power}（${combinedStatNote(mon)}） · ${language() === "en" ? "projected" : "培养目标"}${species(projectedId)?.n || projectedId}/${projectedPower.toFixed(0)} · ${language() === "en" ? "deterministic clears" : "确定性对位"}${battle.clears}/${enemyList.length} · Lv.${mon.level}`,
     };
   }
 
-  function recommendTeam(save, enemyIds, {
-    excludedSignatures = new Set(),
-    levelWeight = DEFAULT_LEVEL_WEIGHT,
-    preferredLevel = null,
-  } = {}) {
-    const enemies = enemyProfiles(enemyIds);
+  function recommendTeam(save, enemyIds, options) {
+    const {
+      excludedSignatures = new Set(),
+      levelWeight = DEFAULT_LEVEL_WEIGHT,
+      preferredLevel = null,
+      targetLevel = null,
+    } = options || {};
+    const fallbackLevel = Math.max(1, Number(targetLevel) || 1);
+    const enemies = enemyProfiles(enemyIds, fallbackLevel);
     const currentFive = new Set(save.teamSets?.list?.[4] || save.team || []);
-    const candidates = teamCandidatesForRecommendation(save);
+    const rawCandidates = teamCandidatesForRecommendation(save);
+    const candidates = removeClearlyDominatedCandidates(save, rawCandidates, enemies, fallbackLevel);
     const preferredUids = new Set(preferredTeamCandidates(save).map((mon) => String(mon.uid)));
     const availableIdentities = new Set(candidates.map(teamIdentity));
     const selected = [];
@@ -497,7 +634,7 @@
       const selectedIdentities = new Set(selected.map(teamIdentity));
       const ranked = candidates
         .filter((mon) => !selectedIdentities.has(teamIdentity(mon)))
-        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel) }))
+        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel, save, fallbackLevel) }))
         .sort((a, b) => Number(preferredUids.has(String(b.mon.uid))) - Number(preferredUids.has(String(a.mon.uid))) || b.score - a.score);
       const choice = ranked[0];
       if (!choice) break;
@@ -512,7 +649,7 @@
       const selectedIdentities = new Set(selected.map(teamIdentity));
       const replacement = candidates
         .filter((mon) => !selectedIdentities.has(teamIdentity(mon)) && teamIdentity(mon) !== teamIdentity(last))
-        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel) }))
+        .map((mon) => ({ mon, ...scoreCandidate(mon, enemies, currentFive, selected, levelWeight, preferredLevel, save, fallbackLevel) }))
         .sort((a, b) => Number(preferredUids.has(String(b.mon.uid))) - Number(preferredUids.has(String(a.mon.uid))) || b.score - a.score)[0];
       if (replacement) {
         selected.push(replacement.mon);
@@ -532,6 +669,7 @@
     const plan = recommendTeam(save, [enemyId], {
       levelWeight: COLLECTION_LEVEL_WEIGHT,
       preferredLevel: ROAMING_PREFERRED_LEVEL,
+      targetLevel: 100,
     });
     return plan;
   }
@@ -540,6 +678,15 @@
     const ids = chapter(chapterIndex)?.boss?.team?.map(([id]) => id) || [];
     const observed = runtime.observedEnemies.get(chapterIndex) || new Set();
     return [...new Set([...ids, ...observed])];
+  }
+
+  function targetEnemiesForChapter(chapterIndex) {
+    const item = chapter(chapterIndex);
+    const levels = new Map(item?.boss?.team || []);
+    const observed = runtime.observedEnemies.get(chapterIndex) || new Set();
+    const observedLevel = runtime.lastOpponent.get(chapterIndex)?.maxLevel || item?.ace || 1;
+    for (const id of observed) levels.set(id, Math.max(levels.get(id) || 0, observedLevel));
+    return [...levels].map(([id, level]) => ({ id, level }));
   }
 
   async function openScreen(name) {
@@ -840,7 +987,10 @@
       await switchChapter(alternative.chapter);
       const targetSave = readSave();
       if (currentRegion(targetSave) !== previousRegion) {
-        const team = recommendTeam(targetSave, [alternative.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
+        const team = recommendTeam(targetSave, [alternative.speciesId], {
+          levelWeight: COLLECTION_LEVEL_WEIGHT,
+          targetLevel: chapter(alternative.chapter)?.ace,
+        });
         await applyRecommendedTeam(team, species(alternative.speciesId)?.n || String(alternative.speciesId));
       }
       return;
@@ -1757,7 +1907,10 @@
       runtime.targetPlan = { chapter: frontier, chapterName: chapter(frontier)?.name };
       runtime.userTeamOverride = false;
       const failures = runtime.failureTeams.get(frontier) || new Set();
-      const plan = recommendTeam(save, targetEnemyIdsForChapter(frontier), { excludedSignatures: failures });
+      const plan = recommendTeam(save, targetEnemiesForChapter(frontier), {
+        excludedSignatures: failures,
+        targetLevel: chapter(frontier)?.ace,
+      });
       await exclusive("生成推图阵容", () => applyRecommendedTeam(plan, chapter(frontier)?.name || `章节${frontier}`));
       return;
     }
@@ -1784,7 +1937,10 @@
         const failed = runtime.failureTeams.get(frontier) || new Set();
         if (runtime.teamPlan?.signature) failed.add(runtime.teamPlan.signature);
         runtime.failureTeams.set(frontier, failed);
-        const plan = recommendTeam(save, targetEnemyIdsForChapter(frontier), { excludedSignatures: failed });
+        const plan = recommendTeam(save, targetEnemiesForChapter(frontier), {
+          excludedSignatures: failed,
+          targetLevel: chapter(frontier)?.ace,
+        });
         notifyUser("阵容需要调整", `同一章节连续失败，重新配置${chapter(frontier)?.name || "当前章节"}阵容。`);
         await exclusive("失败后重新配队", () => applyRecommendedTeam(plan, "连续失败后调整"));
       }
@@ -1803,7 +1959,7 @@
       runtime.targetPlan = plan;
       runtime.userTeamOverride = false;
       const fresh = readSave();
-      const team = recommendTeam(fresh, targetEnemyIdsForChapter(plan.chapter));
+      const team = recommendTeam(fresh, targetEnemiesForChapter(plan.chapter), { targetLevel: chapter(plan.chapter)?.ace });
       await exclusive("配置全收集推图阵容", () => applyRecommendedTeam(team, `${plan.chapterName} · 解锁更多图鉴`));
       log(`为全收集推进${plan.chapterName}；下一次章节解锁后立即重新扫描`);
     }
@@ -2019,7 +2175,10 @@
         const targetSave = readSave();
         const plan = next.special
           ? recommendRoamingTeam(targetSave, next.speciesId)
-          : recommendTeam(targetSave, [next.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
+          : recommendTeam(targetSave, [next.speciesId], {
+            levelWeight: COLLECTION_LEVEL_WEIGHT,
+            targetLevel: chapter(next.chapter)?.ace,
+          });
         await applyRecommendedTeam(plan, species(next.speciesId)?.n || String(next.speciesId));
       });
       return;
@@ -2033,7 +2192,10 @@
         if (currentRegion(targetSave) !== previousRegion) {
           const plan = runtime.targetPlan.special
             ? recommendRoamingTeam(targetSave, runtime.targetPlan.speciesId)
-            : recommendTeam(targetSave, [runtime.targetPlan.speciesId], { levelWeight: COLLECTION_LEVEL_WEIGHT });
+            : recommendTeam(targetSave, [runtime.targetPlan.speciesId], {
+              levelWeight: COLLECTION_LEVEL_WEIGHT,
+              targetLevel: chapter(runtime.targetPlan.chapter)?.ace,
+            });
           await applyRecommendedTeam(plan, species(runtime.targetPlan.speciesId)?.n || String(runtime.targetPlan.speciesId));
         }
       });
@@ -2818,12 +2980,13 @@
     const save = readSave();
     const storyTarget = runtime.target?.startsWith("push:") || runtime.target?.startsWith("unlock:");
     const enemyIds = storyTarget
-      ? targetEnemyIdsForChapter(save.adv.chapter)
+      ? targetEnemiesForChapter(save.adv.chapter)
       : [runtime.targetPlan.speciesId].filter(Boolean);
     const levelWeight = storyTarget ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT;
+    const targetLevel = storyTarget ? chapter(save.adv.chapter)?.ace : chapter(runtime.targetPlan.chapter)?.ace;
     const plan = runtime.targetPlan.roaming || runtime.targetPlan.special
       ? recommendRoamingTeam(save, runtime.targetPlan.speciesId)
-      : recommendTeam(save, enemyIds, { levelWeight });
+      : recommendTeam(save, enemyIds, { levelWeight, targetLevel });
     await exclusive("手动重新生成阵容", () => applyRecommendedTeam(plan, "用户要求重新生成"));
   }
 
@@ -2982,7 +3145,11 @@
       stop: stopMode,
       state: runtime,
       dataBuild: DATA.appBuild,
-      previewTeam: (chapterIndex = readSave().adv.chapter) => recommendTeam(readSave(), targetEnemyIdsForChapter(chapterIndex)).details,
+      previewTeam: (chapterIndex = readSave().adv.chapter) => recommendTeam(
+        readSave(),
+        targetEnemiesForChapter(chapterIndex),
+        { targetLevel: chapter(chapterIndex)?.ace },
+      ).details,
       previewMissing: () => chooseMissingPlan(readSave()),
     };
     log(`助手已加载，游戏数据版本 ${DATA.appBuild}`);
