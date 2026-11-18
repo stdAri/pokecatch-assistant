@@ -63,11 +63,11 @@ test("generated data matches the inspected game build", () => {
   assert.equal(data.battle.gymDamage, 1.3);
 });
 
-test("userscript and development metadata share version 0.12.0", () => {
-  assert.equal(packageJson.version, "0.12.0");
-  assert.ok(source.includes("// @version      0.12.0"));
-  assert.ok(source.includes('const VERSION = "0.12.0"'));
-  assert.ok(viteConfig.includes('version: "0.12.0"'));
+test("userscript and development metadata share version 0.13.0", () => {
+  assert.equal(packageJson.version, "0.13.0");
+  assert.ok(source.includes("// @version      0.13.0"));
+  assert.ok(source.includes('const VERSION = "0.13.0"'));
+  assert.ok(viteConfig.includes('version: "0.13.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
@@ -76,7 +76,7 @@ test("userscript and development metadata share version 0.12.0", () => {
   assert.ok(readme.includes("version-0.12.0-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.12.0"));
   assert.ok(readme.includes("a316ba9635100d27b628bba1773315d0ba7607c1/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.12.0"));
+  assert.ok(changelog.includes("## 0.13.0"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -837,12 +837,12 @@ test("deterministic battle model rejects an obviously dominated Seedot", () => {
   assert.equal(plan.mons.some((mon) => mon.uid === "bulbasaur"), true);
 });
 
-test("automatic Buddy training follows badge caps and rotates by combined stats", () => {
+test("automatic Buddy training follows badge caps, scope, and combined stats", () => {
   const helpers = sourceFunctions([
     "species", "baseStatTotal", "undergroundRank", "combinedStatMultiplier", "combinedStatValue",
     "pokemonHomeRegion", "isMonAvailableInCurrentRegion", "availableTeamCandidates", "buddyLevelCap",
     "buddyTrainingCandidates", "bestBuddyCandidate",
-  ], { DATA: data });
+  ], { DATA: data, settings: { buddyScope: "all" } });
   const charizard = { uid: "charizard", id: 6, level: 19, shiny: false, rank: 0, reg: "kanto" };
   const blastoise = { uid: "blastoise", id: 9, level: 18, shiny: false, rank: 0, reg: "kanto" };
   const venusaur = { uid: "venusaur", id: 3, level: 10, shiny: false, rank: 0, reg: "kanto" };
@@ -851,11 +851,14 @@ test("automatic Buddy training follows badge caps and rotates by combined stats"
     adv: { unlocked: 0, badges: [] },
     buddy: { uid: "venusaur", ko: 2 },
     mons: [venusaur, blastoise, charizard, mewtwo],
+    team: ["venusaur", "blastoise"],
   };
 
   assert.equal(helpers.buddyLevelCap(save, charizard), 20);
   assert.equal(helpers.bestBuddyCandidate(save).mon.uid, "charizard");
   assert.equal(helpers.buddyTrainingCandidates(save).some(({ mon }) => mon.uid === "mewtwo"), false);
+  assert.deepEqual(Array.from(helpers.buddyTrainingCandidates(save, "team"), ({ mon }) => mon.uid), ["blastoise", "venusaur"]);
+  assert.deepEqual(Array.from(helpers.buddyTrainingCandidates(save, "box"), ({ mon }) => mon.uid), ["charizard"]);
 
   charizard.level = 20;
   assert.equal(helpers.bestBuddyCandidate(save).mon.uid, "blastoise");
@@ -864,6 +867,11 @@ test("automatic Buddy training follows badge caps and rotates by combined stats"
   assert.equal(helpers.bestBuddyCandidate(save).mon.uid, "mewtwo");
 
   assert.ok(source.includes('data-setting="autoBuddy"'));
+  assert.ok(source.includes('data-select-setting="buddyScope"'));
+  assert.ok(source.includes('buddyScope: "all"'));
+  assert.ok(source.includes('["all", "team", "box"].includes(loaded.buddyScope)'));
+  assert.ok(source.indexOf('data-tabpanel="training"') < source.indexOf('data-setting="autoBuddy"'));
+  assert.ok(source.indexOf('data-setting="autoBuddy"') < source.indexOf('data-tabpanel="team"'));
   assert.ok(source.includes('detail.querySelector(".dc-buddy")'));
   assert.ok(source.includes("save?.adv?.battle || save?.adv?.event"));
   assert.ok(source.includes("String(readSave().buddy?.uid) === String(mon.uid)"));

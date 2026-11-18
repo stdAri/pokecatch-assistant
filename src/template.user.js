@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.12.0
+// @version      0.13.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.12.0";
+  const VERSION = "0.13.0";
   const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "7acad22262", "021c85dbba", "6e45170313"]);
   const ROAMING_LEGENDARIES = [243, 244, 245];
   const REGION_ORDER = ["kanto", "johto", "hoenn", "sinnoh", "unova"];
@@ -69,8 +69,9 @@
       roamers: "徘徊神兽", roamerNote: "当前固定追踪雷公、炎帝、水君。出现位置从游戏存档实时读取，不受上方地区筛选限制；出现时会暂停普通目标。",
       teamCopy: "阵容与队伍复制", lockTeam: "锁定第五队，不自动覆盖", team: "队伍", copy: "复制", regenerate: "重新生成当前目标阵容",
       autoBuddyTitle: "自动伙伴练级", autoBuddy: "自动选择并轮换伙伴宝可梦",
-      autoBuddyNote: "从当前地区队伍和电脑中选择综合能力最高、且未达到该地区徽章等级上限的宝可梦；达到上限或100级后自动选择下一只。战斗和事件进行中不会切换。",
-      buddyNone: "当前没有伙伴", buddyComplete: "当前地区所有可用宝可梦均已达到等级上限",
+      autoBuddyScope: "伙伴候选范围", autoBuddyScopeAll: "队伍内外全部", autoBuddyScopeTeam: "仅队伍内", autoBuddyScopeBox: "仅队伍外（电脑中）",
+      autoBuddyNote: "从所选范围中选择综合能力最高、且未达到该地区徽章等级上限的宝可梦；达到上限或100级后自动选择下一只。战斗和事件进行中不会切换。",
+      buddyNone: "当前没有伙伴", buddyComplete: "所选范围内的宝可梦均已达到等级上限",
       trainingTitle: "培养候选池", trainingEnable: "启用候选池，自动配队优先使用已勾选的个体",
       trainingPower: "最低综合能力值", trainingPowerHelp: "综合能力值 = 当前形态六项种族值总和 × 异色加成 × 地下强化加成。它只用于筛选培养对象，不代表胜率；填 0 表示不设门槛。",
       trainingEligible: "只显示当前地区可出战成员", trainingSearch: "搜索名称或图鉴编号",
@@ -112,8 +113,9 @@
       roamers: "Roaming legendaries", roamerNote: "Tracks Raikou, Entei and Suicune. Live locations come from the game save, ignore the region filter above, and pause ordinary targets while active.",
       teamCopy: "Team recommendation and copy", lockTeam: "Lock Team 5; never overwrite it", team: "Team", copy: "Copy", regenerate: "Regenerate team for current target",
       autoBuddyTitle: "Automatic Buddy training", autoBuddy: "Automatically choose and rotate the Buddy",
-      autoBuddyNote: "Chooses the highest combined-stat Pokemon in the current region's team or PC that is below its regional badge level cap, then rotates at the cap or level 100. It never switches during battles or events.",
-      buddyNone: "No Buddy selected", buddyComplete: "Every usable Pokemon in the current region is at its level cap",
+      autoBuddyScope: "Buddy candidate range", autoBuddyScopeAll: "Team and PC", autoBuddyScopeTeam: "Team only", autoBuddyScopeBox: "PC only (outside team)",
+      autoBuddyNote: "Chooses the highest combined-stat Pokemon in the selected range that is below its regional badge level cap, then rotates at the cap or level 100. It never switches during battles or events.",
+      buddyNone: "No Buddy selected", buddyComplete: "Every Pokemon in the selected range is at its level cap",
       trainingTitle: "Training candidate pool", trainingEnable: "Enable the pool; automatic teams prefer checked individuals",
       trainingPower: "Minimum combined stat value", trainingPowerHelp: "Combined stat value = the current form's six base stats × Shiny bonus × Underground rank bonus. It filters training candidates; it is not a win rate. Use 0 for no threshold.",
       trainingEligible: "Only show members usable in the current region", trainingSearch: "Search name or Pokédex number",
@@ -146,6 +148,7 @@
     activeTab: "push",
     lockTeam5: false,
     autoBuddy: false,
+    buddyScope: "all",
     prioritizeDailyRaid: true,
     candidatePool: { enabled: false, minPower: 500, uids: [] },
     desktopNotifications: false,
@@ -237,6 +240,7 @@
     try {
       const loaded = mergeDeep(DEFAULT_SETTINGS, JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}"));
       loaded.candidatePool = normalizeCandidatePool(loaded.candidatePool);
+      if (!["all", "team", "box"].includes(loaded.buddyScope)) loaded.buddyScope = "all";
       return loaded;
     } catch {
       return structuredClone(DEFAULT_SETTINGS);
@@ -435,8 +439,10 @@
     return Math.min(maxLevel, Number(nextGym?.levelCap || DATA.battle?.leagueDoneCap || maxLevel));
   }
 
-  function buddyTrainingCandidates(save) {
+  function buddyTrainingCandidates(save, scope = settings.buddyScope) {
+    const teamUids = new Set((save?.team || []).map(String));
     return availableTeamCandidates(save)
+      .filter((mon) => scope === "all" || (scope === "team") === teamUids.has(String(mon.uid)))
       .map((mon) => ({ mon, cap: buddyLevelCap(save, mon), power: combinedStatValue(mon) }))
       .filter(({ mon, cap }) => mon.level < cap && mon.level < (DATA.battle?.maxLevel ?? 100))
       .sort((a, b) => (
@@ -447,8 +453,8 @@
       ));
   }
 
-  function bestBuddyCandidate(save) {
-    return buddyTrainingCandidates(save)[0] || null;
+  function bestBuddyCandidate(save, scope = settings.buddyScope) {
+    return buddyTrainingCandidates(save, scope)[0] || null;
   }
 
   function buddyStatusText(save) {
@@ -2789,6 +2795,12 @@
           </div>
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "training" ? "active" : ""}" role="tabpanel" data-tabpanel="training">
+          <div class="pca-card"><h4>${t("autoBuddyTitle")}</h4>
+            <label class="pca-row"><input type="checkbox" data-setting="autoBuddy" ${settings.autoBuddy ? "checked" : ""}>${t("autoBuddy")}</label>
+            <div class="pca-row"><label for="pca-buddy-scope">${t("autoBuddyScope")}</label><select id="pca-buddy-scope" class="pca-select pca-grow" data-select-setting="buddyScope"><option value="all" ${settings.buddyScope === "all" ? "selected" : ""}>${t("autoBuddyScopeAll")}</option><option value="team" ${settings.buddyScope === "team" ? "selected" : ""}>${t("autoBuddyScopeTeam")}</option><option value="box" ${settings.buddyScope === "box" ? "selected" : ""}>${t("autoBuddyScopeBox")}</option></select></div>
+            <div id="pca-buddy-status" class="pca-note">${t("buddyNone")}</div>
+            <div class="pca-note">${t("autoBuddyNote")}</div>
+          </div>
           <div class="pca-card"><h4>${t("trainingTitle")}</h4>
             <label class="pca-row"><input id="pca-training-enable" type="checkbox" ${getCandidatePoolDraft().enabled ? "checked" : ""}>${t("trainingEnable")}</label>
             <div class="pca-row"><label for="pca-training-min">${t("trainingPower")}</label><input id="pca-training-min" class="pca-select pca-training-min" type="number" min="0" max="2000" step="1" value="${getCandidatePoolDraft().minPower}"></div>
@@ -2801,11 +2813,6 @@
           </div><div id="pca-training-active" class="pca-note"></div>
         </div>
         <div class="pca-tabpanel ${settings.activeTab === "team" ? "active" : ""}" role="tabpanel" data-tabpanel="team">
-          <div class="pca-card"><h4>${t("autoBuddyTitle")}</h4>
-          <label class="pca-row"><input type="checkbox" data-setting="autoBuddy" ${settings.autoBuddy ? "checked" : ""}>${t("autoBuddy")}</label>
-          <div id="pca-buddy-status" class="pca-note">${t("buddyNone")}</div>
-          <div class="pca-note">${t("autoBuddyNote")}</div>
-          </div>
           <div class="pca-card"><h4>${t("teamCopy")}</h4>
           <label class="pca-row"><input type="checkbox" data-setting="lockTeam5" ${settings.lockTeam5 ? "checked" : ""}>${t("lockTeam")}</label>
           <div class="pca-row"><select class="pca-select pca-grow" id="pca-copy-from">${[0,1,2,3,4].map((i)=>`<option value="${i}">${t("team")} ${i+1}</option>`).join("")}</select><span>→</span><select class="pca-select pca-grow" id="pca-copy-to">${[0,1,2,3,4].map((i)=>`<option value="${i}" ${i===4?"selected":""}>${t("team")} ${i+1}</option>`).join("")}</select><button class="pca-btn" data-act="copy">${t("copy")}</button></div>
@@ -2960,6 +2967,13 @@
         settings.regionScope = event.target.value;
         runtime.collectionQueueSignature = "";
         saveSettings();
+      }
+      if (selectSetting === "buddyScope") {
+        settings.buddyScope = ["all", "team", "box"].includes(event.target.value) ? event.target.value : "all";
+        runtime.lastBuddyCheckAt = 0;
+        runtime.buddyStatus = "";
+        saveSettings();
+        if (settings.autoBuddy) queueMicrotask(() => tick());
       }
       const region = event.target.dataset.region;
       if (region) {
