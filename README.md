@@ -8,7 +8,7 @@
 
 <p>
   <a href="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="CHANGELOG.md"><img alt="Version 0.12.0" src="https://img.shields.io/badge/version-0.12.0-blue"></a>
+  <a href="CHANGELOG.md"><img alt="Version 0.13.0" src="https://img.shields.io/badge/version-0.13.0-blue"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="Tampermonkey userscript" src="https://img.shields.io/badge/Tampermonkey-userscript-00485b?logo=tampermonkey">
   <img alt="Simplified Chinese and English" src="https://img.shields.io/badge/UI-简体中文%20%7C%20English-7c3aed">
@@ -48,7 +48,7 @@
 | 模块 | 用途 |
 | --- | --- |
 | 🌱 培养候选池 | 自动配队优先使用勾选个体，并用“当前形态种族值 × 异色加成 × 地下强化”筛选培养对象；不足六种时从其他可出战成员补足 |
-| 💞 自动伙伴练级 | 从当前地区队伍与电脑中选择综合能力最高且未达到徽章等级上限的宝可梦；到达上限或100级后自动轮换 |
+| 💞 自动伙伴练级 | 位于“培养”页，可选择队伍内外全部、仅队伍内或仅队伍外；从所选范围挑选综合能力最高且未达到徽章等级上限的宝可梦，到达上限或100级后自动轮换 |
 | 🧭 跨地区规划 | 按关都→城都→丰缘→神奥→合众处理目标；先切地区和章节，再使用当地可出战成员配队 |
 | 🏛️ 特殊捕获地点 | 识别漩涡列岛、铃铛塔等49个特殊目标地点，并显示缺少的徽章、宝可梦或前置条件 |
 | 🔣 特殊形态编号 | 支持未知图腾 `201-H`、阿尔宙斯 `493-A` 等游戏可见编号 |
@@ -76,7 +76,7 @@
 3. 在 Tampermonkey 安装页面检查脚本名称与权限，然后保存。
 4. 刷新 Poke'Catch；游戏顶部状态栏会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.12.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/a316ba9635100d27b628bba1773315d0ba7607c1/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.12.0 实现提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.13.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/6feeca1a11998e21279f90d07f8d0b2bf0436373/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.13.0 实现提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
 
 如果浏览器没有自动打开安装页，也可以在 Tampermonkey 中新建脚本，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
@@ -145,7 +145,7 @@ npm run dev
 | Module | Purpose |
 | --- | --- |
 | 🌱 Training pool | Prioritizes selected individuals using current-form stats, Shiny bonus, and Underground rank, then fills remaining slots from other usable species |
-| 💞 Automatic Buddy training | Chooses the highest combined-stat usable Pokémon below its regional badge level cap, then rotates at the cap or level 100 |
+| 💞 Automatic Buddy training | Lives under Training and can use the team and PC, the team only, or the PC only; chooses the highest combined-stat eligible Pokémon and rotates at the badge cap or level 100 |
 | 🧭 Cross-region planning | Processes Kanto → Johto → Hoenn → Sinnoh → Unova, switching region and chapter before building a team from locally available members |
 | 🏛️ Special locations | Recognizes 49 special targets such as Lugia's Whirl Islands and Ho-Oh's Bell Tower, including unmet requirements |
 | 🔣 Alternate-form numbers | Supports visible identifiers such as Unown `201-H` and Arceus `493-A` |
@@ -171,7 +171,7 @@ npm run dev
 3. Review the script name and permissions, then confirm installation.
 4. Refresh Poke'Catch; “PokeCatch Assistant” appears in the game's top bar.
 
-For an immutable fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.12.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/a316ba9635100d27b628bba1773315d0ba7607c1/dist/pokecatch-assistant.user.js). Automatic updates still use the script's `@updateURL`.
+For an immutable fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.13.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/6feeca1a11998e21279f90d07f8d0b2bf0436373/dist/pokecatch-assistant.user.js). Automatic updates still use the script's `@updateURL`.
 
 ### 🛡️ Safety
 
