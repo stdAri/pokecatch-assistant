@@ -8,7 +8,7 @@
 
 <p>
   <a href="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="CHANGELOG.md"><img alt="Version 0.13.0" src="https://img.shields.io/badge/version-0.13.0-blue"></a>
+  <a href="CHANGELOG.md"><img alt="Version 0.14.0" src="https://img.shields.io/badge/version-0.14.0-blue"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="Tampermonkey userscript" src="https://img.shields.io/badge/Tampermonkey-userscript-00485b?logo=tampermonkey">
   <img alt="Simplified Chinese and English" src="https://img.shields.io/badge/UI-简体中文%20%7C%20English-7c3aed">
@@ -41,7 +41,7 @@
 | 🗺️ 自动推图 | 从当前地区剧情前沿持续推进 | 根据 Boss 与已观察敌人配队；等级不足时练级，排除等级因素后连续失败会更换组合 |
 | 📚 全图鉴收集 | 自动寻找并捕获缺失目标 | 支持普通路线、特殊地点及洛托姆条件静态事件；显示最多5个待抓目标，必要时只推进到下一次解锁 |
 | 🐾 神兽追踪 | 实时追踪雷公、炎帝、水君 | 支持仅神兽或普通+神兽协同；捕获失败立即重置路线，目标消失后确认结果并重新规划 |
-| ⚔️ 智能配队 | 为推图、收集和神兽任务生成阵容 | 综合属性克制、种族能力、已学招式、等级与长期培养价值；神兽队伍强优先选择 Lv.90+ |
+| ⚔️ 智能配队 | 为推图、收集和神兽任务生成阵容 | 整队连续模拟道路、训练家、治疗点与道馆，并综合属性、招式、等级和培养价值；神兽队伍强优先选择 Lv.90+ |
 
 ### 🧰 辅助功能
 
@@ -57,6 +57,7 @@
 | 🍓 果子管理 | 独立设置战斗果子开关和最低保留量，并按游戏时钟自动续用已启用的增益 |
 | 🪟 双语界面 | 简体中文 / English，可跟随游戏语言；含六个标签页、顶部状态栏和可拖动缩放的浮动窗口 |
 | 🩺 诊断与保护 | 记录任务、目标、位置和日志；未知游戏版本会警告，存档结构或关键页面不兼容时安全暂停 |
+| 🧪 战斗调试 | 默认关闭；按一次完整章节挑战记录配队、节点、伤害、剩余状态与结果，可导出 JSON，数据仅存于插件 IndexedDB |
 
 ### 🎯 四种自动任务
 
@@ -76,7 +77,7 @@
 3. 在 Tampermonkey 安装页面检查脚本名称与权限，然后保存。
 4. 刷新 Poke'Catch；游戏顶部状态栏会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.13.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/6feeca1a11998e21279f90d07f8d0b2bf0436373/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.13.0 实现提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.14.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/a91a3a27268abfa9fbcf60b7ae78056fc7148c6b/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.14.0 实现提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
 
 如果浏览器没有自动打开安装页，也可以在 Tampermonkey 中新建脚本，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
@@ -154,6 +155,7 @@ npm run dev
 | 🍓 Berry automation | Provides per-berry switches and reserves, and renews enabled battle buffs using the game clock |
 | 🪟 Bilingual interface | Simplified Chinese / English, six tabs, a native top-bar summary, and an optional draggable, resizable floating window |
 | 🩺 Diagnostics and safeguards | Warns on an unverified game build, and pauses safely when the save structure or critical page controls are incompatible |
+| 🧪 Battle debugging | Off by default; records one complete chapter attempt with team decisions, nodes, damage, remaining state, and outcome in extension-only IndexedDB, with JSON export |
 
 ### 🎯 Automation modes
 
@@ -171,7 +173,7 @@ npm run dev
 3. Review the script name and permissions, then confirm installation.
 4. Refresh Poke'Catch; “PokeCatch Assistant” appears in the game's top bar.
 
-For an immutable fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.13.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/6feeca1a11998e21279f90d07f8d0b2bf0436373/dist/pokecatch-assistant.user.js). Automatic updates still use the script's `@updateURL`.
+For an immutable fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.14.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/a91a3a27268abfa9fbcf60b7ae78056fc7148c6b/dist/pokecatch-assistant.user.js). Automatic updates still use the script's `@updateURL`.
 
 ### 🛡️ Safety
 
