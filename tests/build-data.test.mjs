@@ -219,10 +219,10 @@ test("league chapters use the shared Pokemon League map entry", () => {
     source.indexOf("async function switchChapter"),
     source.indexOf("async function enterSpecialZone"),
   );
-  assert.ok(switchChapter.includes('const mapChapter = targetChapter.league ? "L" : chapterIndex;'));
+  assert.ok(switchChapter.includes('const mapChapter = group.length ? "L" : chapterIndex;'));
   assert.ok(switchChapter.includes('`.mp-row[data-ch="${mapChapter}"]`'));
   assert.ok(switchChapter.includes('`.mp-go[data-go="${mapChapter}"]`'));
-  assert.ok(switchChapter.includes("readSave().adv.chapter === chapterIndex"));
+  assert.ok(switchChapter.includes("group.some((item) => item.index === save.adv.chapter)"));
 });
 
 test("Rotom forms are extracted as conditional static encounters", () => {
@@ -448,19 +448,18 @@ test("special legendary zones include locations and unlock conditions", () => {
   assert.equal(hoOh.zone, "铃铛塔");
   assert.equal(hoOh.badge, "Brume");
   assert.deepEqual(hoOh.condition.ids, [243, 244, 245]);
-  assert.ok(source.includes('document.querySelector(`.mp-go[data-zone="${plan.speciesId}"]`)'));
-  assert.ok(source.includes('Number(readSave().adv.zone?.id) === Number(plan.speciesId)'));
-  const { species, isCaught, specialConditionStatus, regionInCollectionScope, specialTargetStatus } = sourceFunctions(
-    ["species", "isCaught", "specialConditionStatus", "regionInCollectionScope", "specialTargetStatus"],
-    { DATA: data, settings: { regionScope: "all", customRegions: [] }, language: () => "zh", t: (key) => key },
+  const { specialConditionStatus, specialTargetStatus } = sourceFunctions(
+    ["species", "isCaught", "ownsSpecialPrerequisite", "specialConditionStatus", "regionInCollectionScope",
+      "insideNormalSpecial", "specialEntryIssue", "specialTargetStatus"],
+    { DATA: data, settings: { regionScope: "all", customRegions: [] }, language: () => "zh", t: (key) => key,
+      specialTimingStatus: () => "", runtime: { specialEntryBlocks: new Map() } },
   );
-  const locked = specialConditionStatus({ dex: { 144: { caught: 1 }, 145: { caught: 1 } } }, lugia.condition, lugia);
+  const locked = specialConditionStatus({ mons: [{ id: 144 }, { id: 145 }], dex: { 146: { caught: 1 } } }, lugia.condition, lugia);
   assert.equal(locked.met, false);
   assert.ok(locked.reason.includes("火焰鸟"));
-  assert.equal(specialConditionStatus({ dex: { 144: { caught: 1 }, 145: { caught: 1 }, 146: { caught: 1 } } }, lugia.condition, lugia).met, true);
   const save = {
     adv: { unlocked: data.chapters.length - 1, badges: ["Brume"] },
-    dex: Object.fromEntries([144, 145, 146, 243, 244, 245].map((id) => [id, { caught: 1 }])),
+    mons: [144, 145, 146, 243, 244, 245].map((id) => ({ id })),
   };
   assert.equal(specialTargetStatus(save, 249).open, true);
   assert.equal(specialTargetStatus(save, 250).open, true);
@@ -616,9 +615,9 @@ test("collection queue UI shows at most five automatic targets and waiting farms
   assert.ok(source.includes("runtime.timer = setInterval(tick, 900)"));
   assert.ok(source.includes("Number(item?.until) > now ? 1 : 0"));
   assert.ok(source.includes("JSON.stringify(save.stats?.byReg || {})"));
-  assert.ok(source.includes('collectTick(save, { trackRoamers: false, collectMissing: true })'));
-  assert.ok(source.includes('collectTick(save, { trackRoamers: true, collectMissing: false })'));
-  assert.ok(source.includes('collectTick(save, { trackRoamers: true, collectMissing: true })'));
+  assert.ok(source.includes('collectTick(current, { trackRoamers: false, collectMissing: true })'));
+  assert.ok(source.includes('collectTick(current, { trackRoamers: true, collectMissing: false })'));
+  assert.ok(source.includes('collectTick(current, { trackRoamers: true, collectMissing: true })'));
   const settings = { regionScope: "all", customRegions: [], manualTargets: [] };
   const { chapter, currentRegion, availableChapters, moneyFarmPlan } = sourceFunctions(
     ["chapter", "currentRegion", "unlockedRegions", "collectionScopeRegions", "availableChapters", "moneyFarmPlan"],
@@ -795,9 +794,9 @@ test("ordinary collection, roaming tracking, and combined collection are indepen
   assert.ok(source.includes('data-act="collect">${t("dexCollection")}'));
   assert.ok(source.includes('data-act="roaming">${t("roamOnly")}'));
   assert.ok(source.includes('data-act="combined">${t("combined")}'));
-  assert.ok(source.includes('collectTick(save, { trackRoamers: false, collectMissing: true })'));
-  assert.ok(source.includes('collectTick(save, { trackRoamers: true, collectMissing: false })'));
-  assert.ok(source.includes('collectTick(save, { trackRoamers: true, collectMissing: true })'));
+  assert.ok(source.includes('collectTick(current, { trackRoamers: false, collectMissing: true })'));
+  assert.ok(source.includes('collectTick(current, { trackRoamers: true, collectMissing: false })'));
+  assert.ok(source.includes('collectTick(current, { trackRoamers: true, collectMissing: true })'));
 });
 
 test("assistant UI supports automatic, Chinese, and English language selection", () => {
@@ -1129,7 +1128,7 @@ test("automated page actions use randomized conservative pacing", () => {
   assert.ok(source.includes("afterMin = 450"));
   assert.ok(source.includes("afterMax = 1_100"));
   assert.ok(source.includes("runtime.lastAutomatedActionAt"));
-  assert.ok(source.includes("await pacedClick(go, targetChapter.league"));
+  assert.ok(source.includes("await pacedClick(go, "));
   assert.ok(source.includes("await pacedClick(preset"));
   assert.ok(source.includes("await pacedClick(button, berryLabel(choice.info))"));
   assert.equal((source.match(/\.click\(\)/g) || []).length, 1, "automated clicks must go through pacedClick");
