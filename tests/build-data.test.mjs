@@ -77,6 +77,8 @@ test("userscript and development metadata share version 0.14.1", () => {
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
   assert.ok(readme.includes("version-0.14.1-blue"));
+  assert.ok(readme.includes("安装 PokeCatch 助手 v0.14.1"));
+  assert.ok(readme.includes("cb375694f94df39b4065ba0af188d77e6cfb92a3/dist/pokecatch-assistant.user.js"));
   assert.ok(changelog.includes("## 0.14.1"));
 });
 
@@ -175,6 +177,27 @@ test("whole-team chapter optimization can replace a greedy weak member", () => {
   assert.equal(optimized.simulation.clear, true);
   assert.ok(optimized.team.some((mon) => mon.id === 7));
   assert.ok(simulations <= 73, `expected a bounded search, received ${simulations} simulations`);
+});
+
+test("chapter optimization worker computes off-thread payloads before team application", () => {
+  let posted = null;
+  const { chapterOptimizationWorker } = sourceFunctions(["chapterOptimizationWorker"], {
+    self: { postMessage: (value) => { posted = value; } },
+  });
+  chapterOptimizationWorker({ data: {
+    allies: [
+      { uid: "weak", identity: "weak", maxHp: 10, matchups: { foe: { outgoing: 1, incoming: 10, allyFirst: false } } },
+      { uid: "strong", identity: "strong", maxHp: 10, matchups: { foe: { outgoing: 10, incoming: 1, allyFirst: true } } },
+    ],
+    sequence: [{ kind: "leader", name: "Boss", enemies: [{ key: "foe", id: 1, level: 10, maxHp: 10 }] }],
+    initialUids: ["weak"],
+    excludedSignatures: [],
+  } });
+  assert.deepEqual(Array.from(posted.uids), ["strong"]);
+  assert.equal(posted.simulation.clear, true);
+  assert.ok(source.includes("await optimizeChapterTeamAsync("));
+  assert.ok(source.includes('new Worker(blobUrl)'));
+  assert.ok(source.includes("后台配队期间章节或候选发生变化"));
 });
 
 test("battle debugging is opt-in, bounded, exportable, and separate from the game save", () => {

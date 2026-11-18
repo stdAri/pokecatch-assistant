@@ -1157,6 +1157,145 @@
     return { team: bestTeam, simulation: best.result };
   }
 
+  function chapterOptimizationWorker(event) {
+    const { allies: allyRows, sequence, initialUids, excludedSignatures } = event.data;
+    const allyByUid = new Map(allyRows.map((ally) => [ally.uid, ally]));
+    const excluded = new Set(excludedSignatures);
+    const simulate = (uids) => {
+      const allies = uids.map((uid) => ({ ...allyByUid.get(uid), hp: allyByUid.get(uid).maxHp }));
+      let completed = 0;
+      let reachedLeader = false;
+      const details = [];
+      const total = sequence.filter((entry) => entry.kind !== "heal").length;
+      for (const encounter of sequence) {
+        if (encounter.kind === "heal") {
+          for (const ally of allies) ally.hp = ally.maxHp;
+          details.push({ kind: "heal", name: encounter.name });
+          continue;
+        }
+        if (encounter.kind === "leader") reachedLeader = true;
+        const detail = { kind: encounter.kind, name: encounter.name, enemies: [], allyKos: [] };
+        for (const enemy of encounter.enemies) {
+          let enemyHp = enemy.maxHp;
+          let turns = 0;
+          while (enemyHp > 0 && allies.some((ally) => ally.hp > 0)) {
+            const matchup = allies.filter((ally) => ally.hp > 0).map((ally) => {
+              const values = ally.matchups[enemy.key];
+              return { ally, ...values, value: values.outgoing / values.incoming + ally.hp / ally.maxHp * 0.25 + (values.allyFirst ? 0.2 : 0) };
+            }).sort((a, b) => b.value - a.value || String(a.ally.uid).localeCompare(String(b.ally.uid)))[0];
+            if (!matchup) break;
+            const { ally, outgoing, incoming, allyFirst } = matchup;
+            const turnsToWin = Math.ceil(enemyHp / outgoing);
+            const enemyHitsBeforeWin = allyFirst ? Math.max(0, turnsToWin - 1) : turnsToWin;
+            const hitsToAllyKo = Math.ceil(ally.hp / incoming);
+            if (enemyHitsBeforeWin < hitsToAllyKo) {
+              ally.hp -= enemyHitsBeforeWin * incoming;
+              enemyHp = 0;
+              turns += turnsToWin;
+            } else {
+              const allyAttacks = allyFirst ? hitsToAllyKo : Math.max(0, hitsToAllyKo - 1);
+              enemyHp -= allyAttacks * outgoing;
+              ally.hp = 0;
+              turns += hitsToAllyKo;
+              detail.allyKos.push(ally.uid);
+            }
+          }
+          detail.enemies.push({ id: enemy.id, level: enemy.level, maxHp: enemy.maxHp, turns, remainingHp: Math.max(0, enemyHp) });
+          if (enemyHp > 0) {
+            details.push(detail);
+            const remainingHp = allies.reduce((sum, ally) => sum + Math.max(0, ally.hp), 0) / (allies.reduce((sum, ally) => sum + ally.maxHp, 0) || 1);
+            return { clear: false, reachedLeader, completed, total, remainingHp, failedAt: encounter.kind, details };
+          }
+        }
+        details.push(detail);
+        completed += 1;
+      }
+      const remainingHp = allies.reduce((sum, ally) => sum + Math.max(0, ally.hp), 0) / (allies.reduce((sum, ally) => sum + ally.maxHp, 0) || 1);
+      return { clear: true, reachedLeader, completed, total: completed, remainingHp, failedAt: null, details };
+    };
+    const score = (result) => (result.clear ? 1_000_000_000 : 0) + (result.reachedLeader ? 10_000_000 : 0)
+      + (result.total ? result.completed / result.total : 0) * 1_000_000 + result.remainingHp * 10_000;
+    const cache = new Map();
+    const evaluate = (uids) => {
+      const signature = [...uids].sort().join("|");
+      if (excluded.has(signature)) return { score: -Infinity, result: null };
+      if (!cache.has(signature)) {
+        const result = simulate(uids);
+        cache.set(signature, { score: score(result), result });
+      }
+      return cache.get(signature);
+    };
+    let bestUids = [...initialUids];
+    let best = evaluate(bestUids);
+    for (let slot = 0; slot < bestUids.length; slot += 1) {
+      for (const candidate of allyRows) {
+        if (bestUids.some((uid, index) => index !== slot && allyByUid.get(uid).identity === candidate.identity)) continue;
+        const trial = [...bestUids];
+        trial[slot] = candidate.uid;
+        const evaluated = evaluate(trial);
+        if (evaluated.score > best.score + 1e-9) {
+          bestUids = trial;
+          best = evaluated;
+        }
+      }
+    }
+    self.postMessage({ uids: bestUids, simulation: best.result });
+  }
+
+  async function optimizeChapterTeamAsync(save, candidates, initial, chapterIndex, scoreOptions, excludedSignatures) {
+    if (chapterIndex == null || initial.length < 2 || !chapter(chapterIndex)?.steps?.length) return { team: initial, simulation: null };
+    const continuity = new Set(save.teamSets?.list?.[4] || save.team || []);
+    const ranked = candidates.map((mon) => ({
+      mon,
+      score: scoreCandidate(mon, scoreOptions.enemies, continuity, [], scoreOptions.levelWeight, scoreOptions.preferredLevel, save, scoreOptions.targetLevel).score,
+    })).sort((a, b) => b.score - a.score);
+    const seen = new Set();
+    const pool = [...initial, ...ranked.map((entry) => entry.mon)].filter((mon) => {
+      const key = `${teamIdentity(mon)}|${mon.uid}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 12);
+    const sequence = chapterBattleSequence(save, chapterIndex);
+    const enemyRows = new Map();
+    const compactSequence = sequence.map((encounter) => ({
+      kind: encounter.kind,
+      name: encounter.name,
+      enemies: (encounter.enemies || []).map((enemySpec) => {
+        const key = `${enemySpec.id}|${enemySpec.level}|${encounter.damageMultiplier || 1}|${encounter.hpMultiplier || 1}`;
+        if (!enemyRows.has(key)) {
+          const enemy = freshBattleUnit({ id: enemySpec.id, level: enemySpec.level, shiny: false, rank: 0 }, encounter.hpMultiplier || 1);
+          enemyRows.set(key, { key, id: enemy.id, level: enemy.level, maxHp: enemy.maxHp, damageMultiplier: encounter.damageMultiplier || 1, unit: enemy });
+        }
+        const { unit, damageMultiplier, ...row } = enemyRows.get(key);
+        return row;
+      }),
+    }));
+    const allies = pool.map((mon) => {
+      const unit = freshBattleUnit({ ...mon });
+      const matchups = Object.fromEntries([...enemyRows.values()].map((enemy) => [enemy.key, battleMatchup(unit, enemy.unit, enemy.damageMultiplier)]));
+      return { uid: String(mon.uid), identity: teamIdentity(mon), maxHp: unit.maxHp, matchups };
+    });
+    if (typeof Worker !== "function") return optimizeChapterTeam(save, candidates, initial, chapterIndex, scoreOptions, excludedSignatures);
+    const blobUrl = URL.createObjectURL(new Blob([`self.onmessage = ${chapterOptimizationWorker.toString()};`], { type: "text/javascript" }));
+    try {
+      const result = await new Promise((resolve, reject) => {
+        const worker = new Worker(blobUrl);
+        const timeout = setTimeout(() => { worker.terminate(); reject(new Error("battle worker timeout")); }, 5_000);
+        worker.onmessage = (message) => { clearTimeout(timeout); worker.terminate(); resolve(message.data); };
+        worker.onerror = (error) => { clearTimeout(timeout); worker.terminate(); reject(error); };
+        worker.postMessage({ allies, sequence: compactSequence, initialUids: initial.map((mon) => String(mon.uid)), excludedSignatures: [...excludedSignatures] });
+      });
+      const byUid = new Map(pool.map((mon) => [String(mon.uid), mon]));
+      return { team: result.uids.map((uid) => byUid.get(uid)).filter(Boolean), simulation: result.simulation };
+    } catch (error) {
+      log(`后台战斗模拟不可用，改用限量计算：${error.message}`);
+      return optimizeChapterTeam(save, candidates, initial, chapterIndex, scoreOptions, excludedSignatures);
+    } finally {
+      URL.revokeObjectURL(blobUrl);
+    }
+  }
+
   function recommendTeam(save, enemyIds, options) {
     const {
       excludedSignatures = new Set(),
@@ -1206,27 +1345,21 @@
         });
       }
     }
-    const optimized = typeof optimizeChapterTeam === "function"
-      ? optimizeChapterTeam(save, candidates, selected, chapterIndex, {
-        enemies,
-        levelWeight,
-        preferredLevel,
-        targetLevel: fallbackLevel,
-      }, excludedSignatures)
-      : { team: selected, simulation: null };
-    if (optimized.team !== selected) {
-      selected.splice(0, selected.length, ...optimized.team);
-      details.splice(0, details.length, ...selected.map((mon, index) => {
-        const scored = scoreCandidate(mon, enemies, currentFive, selected.slice(0, index), levelWeight, preferredLevel, save, fallbackLevel);
-        return { uid: mon.uid, id: mon.id, name: species(mon.id)?.n || mon.id, score: scored.score, reason: scored.reason };
-      }));
-    }
     return {
       mons: selected,
       details,
       enemyIds,
       signature: selected.map((mon) => mon.uid).sort().join("|"),
-      simulation: optimized.simulation,
+      simulation: null,
+      optimization: chapterIndex == null ? null : {
+        chapterIndex,
+        candidates,
+        enemies,
+        levelWeight,
+        preferredLevel,
+        targetLevel: fallbackLevel,
+        excludedSignatures: [...excludedSignatures],
+      },
     };
   }
 
@@ -1575,6 +1708,36 @@
   }
 
   async function applyRecommendedTeam(plan, reason) {
+    if (plan.optimization) {
+      const requested = plan.optimization;
+      const snapshot = readSave();
+      const snapshotChapter = Number(snapshot.adv.chapter);
+      const candidateUids = new Set(snapshot.mons.map((mon) => String(mon.uid)));
+      const optimized = await optimizeChapterTeamAsync(
+        snapshot,
+        requested.candidates,
+        plan.mons,
+        requested.chapterIndex,
+        requested,
+        new Set(requested.excludedSignatures),
+      );
+      const fresh = readSave();
+      const stillValid = Number(fresh.adv.chapter) === snapshotChapter
+        && optimized.team.every((mon) => candidateUids.has(String(mon.uid)) && fresh.mons.some((candidate) => String(candidate.uid) === String(mon.uid)));
+      if (stillValid) {
+        const continuity = new Set(fresh.teamSets?.list?.[4] || fresh.team || []);
+        plan.mons = optimized.team;
+        plan.simulation = optimized.simulation;
+        plan.signature = optimized.team.map((mon) => mon.uid).sort().join("|");
+        plan.details = optimized.team.map((mon, index) => {
+          const scored = scoreCandidate(mon, requested.enemies, continuity, optimized.team.slice(0, index), requested.levelWeight, requested.preferredLevel, fresh, requested.targetLevel);
+          return { uid: mon.uid, id: mon.id, name: species(mon.id)?.n || mon.id, score: scored.score, reason: scored.reason };
+        });
+      } else {
+        log("后台配队期间章节或候选发生变化，已放弃过期模拟结果");
+      }
+      delete plan.optimization;
+    }
     runtime.teamPlan = plan;
     runtime.teamStatus = `推荐完成：${reason}`;
     let save = null;
