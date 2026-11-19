@@ -117,6 +117,20 @@ const compactWeather = {
   translate: weather.TRANSLATE,
   types: weather.TYPES,
 };
+
+const compactHabitats = Object.fromEntries(Object.entries(habitats).map(([key, tables]) => {
+  const questSpecies = new Set(Object.entries(tables)
+    .filter(([table]) => table.startsWith("quest:"))
+    .flatMap(([, entries]) => Object.keys(entries || {})));
+  const wildTables = Object.entries(tables)
+    .filter(([table]) => !table.startsWith("quest:"))
+    .map(([table, entries]) => [
+      table,
+      Object.fromEntries(Object.entries(entries || {}).filter(([id]) => !questSpecies.has(id))),
+    ])
+    .filter(([, entries]) => Object.keys(entries).length);
+  return [key, Object.fromEntries(wildTables)];
+}));
 const storyRegions = evaluateLiteral(extractLiteralFromPattern(/REGIONS:\[\{key:"kanto"/, "[", "]"));
 const chapterLiteral = extractLiteral("CHAPTERS:[", "[", "]");
 const unownLetters = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "!", "?"];
@@ -478,7 +492,7 @@ const gameData = {
   typeChart,
   chapters: compactChapters,
   encounters,
-  habitats,
+  habitats: compactHabitats,
   weather: compactWeather,
   roamingWeather,
   roamingGroups,

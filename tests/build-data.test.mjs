@@ -50,8 +50,8 @@ function sourceFunctions(names, context = {}) {
 }
 
 test("generated data matches the inspected game build", () => {
-  assert.equal(data.appBuild, "0a7dcb2280");
-  assert.equal(data.langBuild, "383a4bbde8");
+  assert.equal(data.appBuild, "3bdd8140e1");
+  assert.equal(data.langBuild, "db67ebc671");
   assert.equal(Object.keys(data.species).length, 721);
   assert.equal(data.species[4].n, "小火龙");
   assert.deepEqual(data.species[4].t, ["fire"]);
@@ -65,21 +65,19 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.battle.gymTrainers.below, [4, 2, 2]);
 });
 
-test("userscript and development metadata share version 0.16.0", () => {
-  assert.equal(packageJson.version, "0.16.0");
-  assert.ok(source.includes("// @version      0.16.0"));
-  assert.ok(source.includes('const VERSION = "0.16.0"'));
-  assert.ok(viteConfig.includes('version: "0.16.0"'));
+test("userscript and development metadata share version 0.16.1", () => {
+  assert.equal(packageJson.version, "0.16.1");
+  assert.ok(source.includes("// @version      0.16.1"));
+  assert.ok(source.includes('const VERSION = "0.16.1"'));
+  assert.ok(viteConfig.includes('version: "0.16.1"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   assert.ok(viteConfig.includes("/;\\r?\\n  const SAVE_KEY/"));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.16.0-blue"));
-  assert.ok(readme.includes("安装 PokeCatch 助手 v0.16.0"));
-  assert.ok(readme.includes("fc8f15c45b2a8a35a1eda53dfacf0727022a54c7/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.16.0"));
+  assert.ok(readme.includes("version-0.16.1-blue"));
+  assert.ok(changelog.includes("## 0.16.1"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -104,7 +102,7 @@ test("compatibility verifies known bundles and allows structurally compatible un
   const unknown = validateCompatibility();
   assert.equal(unknown.ok, true);
   assert.equal(unknown.verified, false);
-  assert.equal(unknown.expected, "0a7dcb2280, 7acad22262, 021c85dbba, 6e45170313");
+  assert.equal(unknown.expected, "3bdd8140e1, 7acad22262, 021c85dbba, 6e45170313");
   document.querySelector = (selector) => selector === "#timeline" ? null : {};
   const incompatible = validateCompatibility();
   assert.equal(incompatible.ok, false);
@@ -291,7 +289,7 @@ test("Rotom forms are extracted as conditional static encounters", () => {
   ));
   const rotom = encounters.filter((item) => item.id >= 47901 && item.id <= 47905);
   assert.deepEqual(rotom.map((item) => item.id).sort((a, b) => a - b), [47901, 47902, 47903, 47904, 47905]);
-  assert.ok(rotom.every((item) => item.chance === 0.1 && item.caught.includes(479)));
+  assert.ok(rotom.every((item) => item.chance === 0.25 && item.caught.includes(479)));
   assert.deepEqual(rotom.find((item) => item.id === 47901).skies, ["ash", "sun"]);
   assert.deepEqual(rotom.find((item) => item.id === 47902).skies, ["rain", "storm"]);
   assert.equal(rotom.find((item) => item.id === 47903).night, true);
@@ -299,6 +297,27 @@ test("Rotom forms are extracted as conditional static encounters", () => {
   assert.equal(rotom.find((item) => item.id === 47905).day, true);
   assert.ok(source.includes("for (const encounter of item.staticEncounters || [])"));
   assert.ok(source.includes('await exclusive("静态事件本轮未生成"'));
+});
+
+test("quest-only habitat entries do not become ordinary wild encounters", () => {
+  const questOnly = [442, 610, 636, 47901, 47902, 47903, 47904, 47905];
+  for (const habitat of Object.values(data.habitats)) {
+    assert.ok(Object.keys(habitat).every((table) => !table.startsWith("quest:")));
+  }
+  const helpers = sourceFunctions(["habitatWeights"], { DATA: data });
+  const cases = [
+    ["Route 209|dppt:sinnoh-route-209-area", "night", null, 442],
+    ["Grotte Parsemille|bw:mistralton-cave-area", "day", null, 610],
+    ["Désert Délassant|bw:desert-resort-entrance+bw:desert-resort-area", "day", "sun", 636],
+  ];
+  for (const [key, phase, weather, id] of cases) {
+    assert.equal(helpers.habitatWeights(data.habitats[key], phase, weather)[id], undefined);
+  }
+  for (const habitat of Object.values(data.habitats)) {
+    for (const table of Object.values(habitat)) {
+      for (const id of questOnly) assert.equal(table[id], undefined);
+    }
+  }
 });
 
 test("Rotom static plans honor ownership, daytime, and route weather", () => {
