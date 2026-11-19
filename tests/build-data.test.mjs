@@ -65,21 +65,21 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.battle.gymTrainers.below, [4, 2, 2]);
 });
 
-test("userscript and development metadata share version 0.14.2", () => {
-  assert.equal(packageJson.version, "0.14.2");
-  assert.ok(source.includes("// @version      0.14.2"));
-  assert.ok(source.includes('const VERSION = "0.14.2"'));
-  assert.ok(viteConfig.includes('version: "0.14.2"'));
+test("userscript and development metadata share version 0.15.0", () => {
+  assert.equal(packageJson.version, "0.15.0");
+  assert.ok(source.includes("// @version      0.15.0"));
+  assert.ok(source.includes('const VERSION = "0.15.0"'));
+  assert.ok(viteConfig.includes('version: "0.15.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   assert.ok(viteConfig.includes("/;\\r?\\n  const SAVE_KEY/"));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.14.2-blue"));
+  assert.ok(readme.includes("version-0.15.0-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.14.1"));
   assert.ok(readme.includes("884f9e9fcc028a6a3cc956d83e6983394b657009/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.14.2"));
+  assert.ok(changelog.includes("## 0.15.0"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -888,6 +888,18 @@ test("assistant UI supports automatic, Chinese, and English language selection",
   assert.equal(languageFunctions.t("startPush"), "开始推图");
   settings.language = "en";
   assert.equal(languageFunctions.t("startPush"), "Start story");
+});
+
+test("assistant exposes the author, GitHub project, and issue feedback links", () => {
+  assert.ok(source.includes('const PROJECT_URL = "https://github.com/stdAri/pokecatch-assistant"'));
+  assert.ok(source.includes('const ISSUES_URL = `${PROJECT_URL}/issues/new`'));
+  assert.ok(source.includes('class="pca-project-icon"'));
+  assert.ok(source.includes('${t("author")}: stdAri · GitHub'));
+  assert.ok(source.includes('${t("projectLinks")}'));
+  assert.ok(source.includes('${t("githubProject")}'));
+  assert.ok(source.includes('${t("reportIssue")}'));
+  assert.ok(source.includes('target="_blank" rel="noopener noreferrer"'));
+  assert.ok(source.includes('event.target.closest("a,button,select,input")'));
 });
 
 test("collection task buttons share one consistent layout and style", () => {

@@ -8,7 +8,7 @@
 
 <p>
   <a href="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="CHANGELOG.md"><img alt="Version 0.14.2" src="https://img.shields.io/badge/version-0.14.2-blue"></a>
+  <a href="CHANGELOG.md"><img alt="Version 0.15.0" src="https://img.shields.io/badge/version-0.15.0-blue"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="Tampermonkey userscript" src="https://img.shields.io/badge/Tampermonkey-userscript-00485b?logo=tampermonkey">
   <img alt="Simplified Chinese and English" src="https://img.shields.io/badge/UI-简体中文%20%7C%20English-7c3aed">
@@ -58,6 +58,7 @@
 | 🪟 双语界面 | 简体中文 / English，可跟随游戏语言；含六个标签页、顶部状态栏和可拖动缩放的浮动窗口 |
 | 🩺 诊断与保护 | 记录任务、目标、位置和日志；未知游戏版本会警告，存档结构或关键页面不兼容时安全暂停 |
 | 🧪 战斗调试 | 默认关闭；按一次完整章节挑战记录配队、节点、伤害、剩余状态与结果，可导出 JSON，数据仅存于插件 IndexedDB |
+| 🐙 项目与反馈 | 标题栏可直接打开 GitHub；诊断页标明作者并提供源码与问题反馈入口 |
 
 ### 🎯 四种自动任务
 
@@ -156,6 +157,7 @@ npm run dev
 | 🪟 Bilingual interface | Simplified Chinese / English, six tabs, a native top-bar summary, and an optional draggable, resizable floating window |
 | 🩺 Diagnostics and safeguards | Warns on an unverified game build, and pauses safely when the save structure or critical page controls are incompatible |
 | 🧪 Battle debugging | Off by default; records one complete chapter attempt with team decisions, nodes, damage, remaining state, and outcome in extension-only IndexedDB, with JSON export |
+| 🐙 Project & feedback | Opens GitHub from the title bar; the Diagnostics tab identifies the author and links to the source and issue form |
 
 ### 🎯 Automation modes
 
