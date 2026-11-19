@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.14.1
+// @version      0.16.0
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,9 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.14.1";
+  const VERSION = "0.16.0";
+  const PROJECT_URL = "https://github.com/stdAri/pokecatch-assistant";
+  const ISSUES_URL = `${PROJECT_URL}/issues/new`;
   const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "7acad22262", "021c85dbba", "6e45170313"]);
   const ROAMING_GROUPS = DATA.roamingGroups;
   const ROAMING_LEGENDARIES = ROAMING_GROUPS.flatMap(({ ids }) => ids);
@@ -86,6 +88,7 @@
       berryTitle: "战斗增益果子（全部默认关闭）", reserve: "最低保留数量", berryNote: "右侧数字为最低保留量；普通与金色捕获果同时开启时优先金色。",
       stock: "库存", pensionBerryTitle: "培育屋专用果子", pensionBerryButton: "前往培育屋使用", pensionBerryNote: "这些果子只显示效果和库存，需要在培育屋满足条件时手动使用；助手不会自动消耗。",
       notifications: "通知", sound: "页面提示音", desktop: "桌面通知", diagnostic: "诊断", noError: "无异常", copyDiagnostic: "复制诊断", logs: "日志",
+      projectLinks: "项目与反馈", author: "作者", githubProject: "查看 GitHub", reportIssue: "反馈问题", issueNote: "遇到问题时，建议先复制上方诊断信息，再到 GitHub 提交 Issue。",
       debugMode: "战斗调试模式", debugModeNote: "默认关闭。开启后按一次完整章节挑战记录配队决策、节点、敌我状态、伤害与结果；只存于浏览器 IndexedDB，不写入游戏存档。", debugLimit: "最多保留", debugRuns: "最近挑战", debugExport: "导出 JSON", debugClear: "清空记录", debugEmpty: "暂无调试记录", debugEnabled: "调试记录已开启", debugDisabled: "调试记录已关闭",
       statusTitle: "当前任务状态", task: "任务", target: "目标", place: "位置", attempts: "尝试", buffs: "增益", fifthTeam: "第五队", idle: "空闲", notGenerated: "未生成",
       notAppeared: "未出现", caught: "已捕获", appearing: "出现中", minutes: "分", moveUp: "上移", moveDown: "下移",
@@ -131,6 +134,7 @@
       berryTitle: "Battle berries (all off by default)", reserve: "Minimum reserve", berryNote: "The number on the right is the reserve. Golden Razz is preferred when both catch berries are enabled.",
       stock: "Stock", pensionBerryTitle: "Day Care berries", pensionBerryButton: "Open Day Care", pensionBerryNote: "These berries show their effects and stock here, but must be used manually in the Day Care. The assistant never auto-consumes them.",
       notifications: "Notifications", sound: "Page sound", desktop: "Desktop notifications", diagnostic: "Diagnostics", noError: "No errors", copyDiagnostic: "Copy diagnostics", logs: "Logs",
+      projectLinks: "Project & feedback", author: "Author", githubProject: "View GitHub", reportIssue: "Report an issue", issueNote: "When reporting a problem, copy the diagnostics above first and include them in the GitHub issue.",
       debugMode: "Battle debug mode", debugModeNote: "Off by default. Records team decisions, nodes, combat state, damage and outcomes for one complete chapter attempt. Data stays in browser IndexedDB and never enters the game save.", debugLimit: "Keep at most", debugRuns: "Recent attempts", debugExport: "Export JSON", debugClear: "Clear records", debugEmpty: "No debug records yet", debugEnabled: "Debug recording enabled", debugDisabled: "Debug recording disabled",
       statusTitle: "Current task", task: "Mode", target: "Target", place: "Location", attempts: "Attempts", buffs: "Buffs", fifthTeam: "Team 5", idle: "Idle", notGenerated: "Not generated",
       notAppeared: "Not active", caught: "Caught", appearing: "Active", minutes: "min", moveUp: "Move up", moveDown: "Move down",
@@ -736,10 +740,10 @@
     return (defenderTypes || []).reduce((value, type) => value * (row[type] ?? 1), 1);
   }
 
-  function learnedMoves(meta, level) {
+  function learnedMoves(meta, level, damagingOnly = true) {
     return (meta?.l || [])
-      .filter(([learnLevel, key]) => learnLevel <= level && DATA.moves[key]?.[1] > 0)
-      .map(([, key]) => ({ key, type: DATA.moves[key][0], power: DATA.moves[key][1], accuracy: DATA.moves[key][2] }));
+      .filter(([learnLevel, key]) => learnLevel <= level && DATA.moves[key] && (!damagingOnly || DATA.moves[key][1] > 0))
+      .map(([, key]) => ({ key, type: DATA.moves[key][0], power: DATA.moves[key][1], accuracy: DATA.moves[key][2], category: DATA.moves[key][3] }));
   }
 
   function battleStats(mon, speciesId = mon.id, level = mon.level) {
@@ -773,8 +777,10 @@
     const defenderStats = battleStats(defender);
     if (!attackMeta || !defenderMeta || !attackStats || !defenderStats || move.power <= 0) return 0;
     const physical = DATA.moves[move.key]?.[3] === "phys";
-    const attack = physical ? attackStats.atk : attackStats.spa;
-    const defense = Math.max(1, physical ? defenderStats.def : defenderStats.spd);
+    const attackPenalty = physical && attacker.status === "burn" || !physical && attacker.status === "poison" ? 0.75 : 1;
+    const defensePenalty = physical && defender.status === "sleep" || !physical && defender.status === "freeze" ? 0.75 : 1;
+    const attack = (physical ? attackStats.atk : attackStats.spa) * attackPenalty;
+    const defense = Math.max(1, (physical ? defenderStats.def : defenderStats.spd) * defensePenalty);
     const stab = attackMeta.t.includes(move.type) ? 1.5 : 1;
     const effectiveness = typeEffect(move.type, defenderMeta.t);
     if (effectiveness === 0) return 0;
@@ -879,13 +885,29 @@
     const weather = currentWeatherForRoute(save, item, route, at, phase);
     const weights = routeWeights(route, phase, weather);
     const level = Math.max(1, Number(route.levelBand?.[1] || item.ace || 1));
-    const pool = Object.entries(weights)
+    const explicit = (route.species || []).map((id) => Number(id)).filter((id) => species(id));
+    const ids = explicit.length ? explicit.map((id) => projectEnemySpeciesId(id, level)) : Object.entries(weights)
       .filter(([id, weight]) => species(Number(id)) && Number(weight) > 0)
       .sort((a, b) => Number(b[1]) - Number(a[1]) || Number(a[0]) - Number(b[0]))
       .slice(0, 6)
-      .map(([id]) => ({ id: Number(id), level }));
+      .map(([id]) => Number(id));
+    const pool = ids.map((id) => ({ id, level }));
     if (pool.length) return pool;
     return scaledBossTeam(item.index).slice(0, 3).map((foe) => ({ ...foe, level: Math.min(foe.level, level) }));
+  }
+
+  function projectEnemySpeciesId(speciesId, level) {
+    let id = Number(speciesId);
+    const visited = new Set([id]);
+    for (let depth = 0; depth < 4; depth += 1) {
+      const options = (DATA.evolutions?.[id] || []).filter((option) => (
+        option.level != null ? level >= option.level : level >= (DATA.battle?.trainerItemEvolutionLevel ?? 40)
+      )).filter((option) => species(option.to) && !visited.has(Number(option.to)));
+      if (!options.length) break;
+      id = Number(options.sort((a, b) => baseStatTotal(b.to) - baseStatTotal(a.to))[0].to);
+      visited.add(id);
+    }
+    return id;
   }
 
   function scaledFixedTrainerTeam(item, step) {
@@ -899,9 +921,66 @@
     return raw.map(([id, level]) => ({ id: Number(id), level: Math.round(Number(level) * target / rawAce) }));
   }
 
+  function savedChapterBattleSequence(save, chapterIndex) {
+    if (Number(save?.adv?.chapter) !== Number(chapterIndex) || !Array.isArray(save?.adv?.nodes)) return [];
+    const item = chapter(chapterIndex);
+    const sequence = [];
+    for (const [nodeIndex, node] of save.adv.nodes.entries()) {
+      if (node?.type === "heal") {
+        sequence.push({ kind: "heal", stepIndex: nodeIndex, name: node.name || "Heal" });
+        continue;
+      }
+      if (node?.type === "wild" || node?.type === "static") {
+        if (species(Number(node.id))) sequence.push({
+          kind: node.type,
+          stepIndex: nodeIndex,
+          name: node.name,
+          enemies: [{ id: Number(node.id), level: Math.max(1, Number(node.level) || Number(item?.ace) || 1) }],
+          boss: node.type === "static" && !!(node.raid || node.zone),
+          damageMultiplier: DATA.battle?.enemyDamage?.[node.type] ?? (node.type === "wild" ? 0.85 : 1),
+        });
+        continue;
+      }
+      if (node?.type === "trainer") {
+        const explicit = (node.team || []).map((entry) => Array.isArray(entry) ? { id: Number(entry[0]), level: Number(entry[1]) } : null).filter((entry) => species(entry?.id));
+        const pool = (node.pool || []).map((entry) => typeof entry === "object" ? entry : { id: entry, level: item?.ace }).filter((entry) => species(Number(entry?.id)));
+        const size = Math.max(1, Number(node.size) || explicit.length || Math.min(3, pool.length) || 1);
+        const enemies = explicit.length ? explicit : Array.from({ length: size }, (_, index) => {
+          const source = pool[index % Math.max(1, pool.length)];
+          const level = Math.max(1, Number(source?.level) || Number(item?.ace) || 1);
+          return { id: projectEnemySpeciesId(Number(source?.id), level), level };
+        }).filter((entry) => species(entry.id));
+        if (enemies.length) sequence.push({
+          kind: node.gymTrainer ? "gym-trainer" : "trainer",
+          stepIndex: nodeIndex,
+          name: node.name || node.trainer,
+          enemies,
+          slots: node.double || enemies.length === 2 ? 2 : 1,
+          damageMultiplier: node.gymTrainer ? DATA.battle?.gymTrainers?.damage ?? 0.8 : DATA.battle?.enemyDamage?.trainer ?? 0.9,
+        });
+        continue;
+      }
+      if (node?.type === "gym") {
+        const enemies = scaledBossTeam(chapterIndex);
+        if (enemies.length) sequence.push({
+          kind: "leader",
+          stepIndex: nodeIndex,
+          name: node.gym?.leader || item?.boss?.name || node.name,
+          enemies,
+          slots: node.gym?.double || item?.boss?.double ? 2 : 1,
+          damageMultiplier: (DATA.battle?.gymDamage ?? 1.3) * Number(node.gym?.power || item?.boss?.power || 1),
+          hpMultiplier: (DATA.battle?.gymHpMult ?? 1.3) * Number(node.gym?.power || item?.boss?.power || 1) * Math.max(1, 6 / enemies.length) ** (DATA.battle?.gymTeamExp ?? 0.7),
+        });
+      }
+    }
+    return sequence;
+  }
+
   function chapterBattleSequence(save, chapterIndex) {
     const item = chapter(chapterIndex);
     if (!item) return [];
+    const saved = savedChapterBattleSequence(save, chapterIndex);
+    if (saved.length) return saved;
     const sequence = [];
     for (const step of item.steps || []) {
       if (step.kind === "heal") {
@@ -923,7 +1002,8 @@
             kind,
             stepIndex: step.stepIndex,
             name: step.name,
-            enemies: [threats[threatIndex % threats.length]],
+            enemies: Array.from({ length: kind === "trainer" ? 1 + trainerIndex % 3 : 1 }, (_, offset) => threats[(threatIndex + offset) % threats.length]),
+            slots: kind === "trainer" && trainerIndex % 2 === 0 && 1 + trainerIndex % 3 >= 2 ? 2 : 1,
             damageMultiplier: DATA.battle?.enemyDamage?.[kind] ?? (kind === "trainer" ? 0.9 : 0.85),
           });
           if (kind === "trainer") trainerIndex += 1;
@@ -933,11 +1013,11 @@
       }
       if (step.kind === "trainer") {
         const enemies = scaledFixedTrainerTeam(item, step);
-        if (enemies.length) sequence.push({ kind: "trainer", stepIndex: step.stepIndex, name: step.name, enemies, damageMultiplier: DATA.battle?.enemyDamage?.trainer ?? 0.9 });
+        if (enemies.length) sequence.push({ kind: "trainer", stepIndex: step.stepIndex, name: step.name, enemies, slots: step.double ? 2 : 1, damageMultiplier: DATA.battle?.enemyDamage?.trainer ?? 0.9 });
         continue;
       }
       if (step.kind === "static" && step.id) {
-        sequence.push({ kind: "static", stepIndex: step.stepIndex, name: step.name, enemies: [{ id: Number(step.id), level: Number(step.level || item.ace || 1) }], damageMultiplier: DATA.battle?.enemyDamage?.static ?? 1, hpMultiplier: 1 + (DATA.battle?.enemyHpPerAlly ?? 0.7) * 5 });
+        sequence.push({ kind: "static", stepIndex: step.stepIndex, name: step.name, enemies: [{ id: Number(step.id), level: Number(step.level || item.ace || 1) }], boss: true, damageMultiplier: DATA.battle?.enemyDamage?.static ?? 1, hpMultiplier: 1 + (DATA.battle?.enemyHpPerAlly ?? 0.7) * 5 });
         continue;
       }
       if (step.kind === "gym") {
@@ -955,6 +1035,7 @@
             stepIndex: step.stepIndex,
             name: item.boss?.name || step.name,
             enemies: leader,
+            slots: step.double || item.boss?.double ? 2 : 1,
             damageMultiplier: (DATA.battle?.gymDamage ?? 1.3) * power,
             hpMultiplier: (DATA.battle?.gymHpMult ?? 1.3) * power * Math.max(1, 6 / leader.length) ** (DATA.battle?.gymTeamExp ?? 0.7),
           });
@@ -967,7 +1048,7 @@
   function freshBattleUnit(mon, hpMultiplier = 1) {
     const stats = battleStats(mon);
     const maxHp = Math.max(1, Math.floor((stats?.hp || 1) * hpMultiplier));
-    return { ...mon, maxHp, hp: maxHp };
+    return { ...mon, maxHp, hp: maxHp, status: null, statusLeft: 0, confused: 0, proc: {}, active: false };
   }
 
   function battleMatchup(ally, enemy, damageMultiplier) {
@@ -977,43 +1058,176 @@
     return { outgoing, incoming, allyFirst };
   }
 
-  function pickBattleAlly(allies, enemy, damageMultiplier) {
-    return allies.filter((ally) => ally.hp > 0).map((ally) => {
-      const matchup = battleMatchup(ally, enemy, damageMultiplier);
-      const speed = matchup.allyFirst ? 0.2 : 0;
-      return { ally, ...matchup, value: matchup.outgoing / matchup.incoming + ally.hp / ally.maxHp * 0.25 + speed };
-    }).sort((a, b) => b.value - a.value || String(a.ally.uid).localeCompare(String(b.ally.uid)))[0] || null;
+  function pickBattleAllies(allies, enemies, slots, damageMultiplier) {
+    const livingEnemies = enemies.filter((enemy) => enemy.hp > 0);
+    const ranked = allies.filter((ally) => ally.hp > 0).map((ally, index) => {
+      const value = livingEnemies.reduce((sum, enemy) => {
+        const matchup = battleMatchup(ally, enemy, damageMultiplier);
+        return sum + matchup.outgoing / matchup.incoming + (matchup.allyFirst ? 0.01 : 0);
+      }, 0) / Math.max(1, livingEnemies.length);
+      return { ally, index, value };
+    }).sort((a, b) => b.value - a.value || a.index - b.index);
+    const selected = new Set(ranked.slice(0, slots).map((entry) => entry.ally));
+    for (const ally of allies) {
+      if (ally.active && !selected.has(ally)) ally.confused = 0;
+      ally.active = selected.has(ally);
+    }
+    return ranked.slice(0, slots).map((entry) => entry.ally);
+  }
+
+  function statusEffectOf(move) {
+    const row = DATA.statusMoves?.[move?.key];
+    if (!row) return null;
+    const guaranteed = new Set(["spore", "sacred-fire", "nuzzle", "zap-cannon", "inferno", "dynamic-punch"]);
+    const cap = guaranteed.has(move.key) ? 100 : move.power > 0 ? 30 : 70;
+    return { status: row[0] === "tri" ? "paralysis" : row[0], chance: Math.min(Number(row[1]) || 0, cap, Number(move.accuracy) || 100) / 100 };
+  }
+
+  function canInflictStatus(unit, status) {
+    if (status === "confusion") return !unit.confused;
+    if (unit.status) return false;
+    const types = species(unit.id)?.t || [];
+    return !(status === "burn" && types.includes("fire")
+      || status === "poison" && (types.includes("poison") || types.includes("steel"))
+      || status === "freeze" && types.includes("ice"));
+  }
+
+  function applyBattleStatus(unit, status) {
+    if (!canInflictStatus(unit, status)) return false;
+    if (status === "confusion") unit.confused = 5;
+    else {
+      unit.status = status;
+      unit.statusLeft = status === "sleep" ? (unit.boss ? DATA.battle?.bossStatus?.lockMax || 2 : 3)
+        : status === "freeze" ? (unit.boss ? DATA.battle?.bossStatus?.lockMax || 2 : Math.round(1 / (DATA.battle?.thawChance || 0.2)))
+          : status === "paralysis" ? (DATA.battle?.statusFx?.paralysisTurns || 3)
+            : (unit.boss ? DATA.battle?.bossStatus?.dotTurns || 4 : DATA.battle?.statusFx?.dotTurns || 5);
+    }
+    return true;
+  }
+
+  function procBattleStatus(attacker, defender, effect, key) {
+    if (!effect || !canInflictStatus(defender, effect.status)) return false;
+    const meterKey = `${key}:${effect.status}:${defender.uid || defender.id}`;
+    attacker.proc[meterKey] = (attacker.proc[meterKey] || 0) + effect.chance;
+    if (attacker.proc[meterKey] < 1) return false;
+    attacker.proc[meterKey] -= 1;
+    return applyBattleStatus(defender, effect.status);
+  }
+
+  function statusMoveAgainst(attacker, defender) {
+    let selected = null;
+    for (const move of learnedMoves(species(attacker.id), attacker.level, false)) {
+      const effect = move.power <= 0 && statusEffectOf(move);
+      if (effect && canInflictStatus(defender, effect.status) && typeEffect(move.type, species(defender.id)?.t) !== 0) selected = { move, effect };
+    }
+    return selected;
+  }
+
+  function battleSpeed(unit) {
+    return (battleStats(unit)?.spe || 1) * (unit.status === "paralysis" ? 0.25 : 1);
+  }
+
+  function beforeBattleAction(unit) {
+    if (unit.status === "sleep") {
+      if (unit.statusLeft > 0) {
+        unit.statusLeft -= 1;
+        return { skip: true };
+      }
+      unit.status = null;
+    } else if (unit.status === "freeze") {
+      if (unit.statusLeft > 0) {
+        unit.statusLeft -= 1;
+        return { skip: true };
+      }
+      unit.status = null;
+    } else if (unit.status === "paralysis") {
+      unit.statusLeft -= 1;
+      const paralysisChance = unit.boss ? DATA.battle?.bossStatus?.paralysisBlock || 0.2 : DATA.battle?.fullParalysisChance || 0.25;
+      unit.paraCycle = ((unit.paraCycle || 0) + 1) % Math.max(1, Math.round(1 / paralysisChance));
+      if (unit.paraCycle === 1) return { skip: true };
+      if (unit.statusLeft <= 0) unit.status = null;
+    }
+    if (unit.confused > 0) {
+      unit.confused -= 1;
+      unit.confusionCycle = ((unit.confusionCycle || 0) + 1) % Math.max(1, Math.round(1 / (DATA.battle?.confusionSelfHitChance || 1 / 3)));
+      if (unit.confusionCycle === 1) {
+        const stats = battleStats(unit);
+        const damage = Math.max(1, Math.floor((2 * unit.level / 5 + 2) * 40 * stats.atk / Math.max(1, stats.def) / 50 + 2));
+        unit.hp = Math.max(0, unit.hp - damage);
+        return { skip: true, selfDamage: damage };
+      }
+    }
+    return { skip: false };
+  }
+
+  function afterBattleAction(unit) {
+    if (unit.status !== "burn" && unit.status !== "poison") return 0;
+    const damage = Math.max(1, Math.floor(unit.maxHp / (unit.boss ? DATA.battle?.bossStatus?.hurt || 60 : 8)));
+    unit.hp = Math.max(0, unit.hp - damage);
+    unit.statusLeft -= 1;
+    if (unit.statusLeft <= 0 && unit.hp > 0) unit.status = null;
+    return damage;
+  }
+
+  function chooseBattleTarget(attacker, targets, allySide) {
+    if (!allySide) return targets[0] || null;
+    return targets.map((target, index) => {
+      const move = bestDamageMove(attacker, target);
+      return { target, index, value: move.damage / Math.max(1, target.hp) };
+    }).sort((a, b) => b.value - a.value || a.index - b.index)[0]?.target || null;
+  }
+
+  function performBattleAction(attacker, defender, allySide, damageMultiplier) {
+    const statusMove = statusMoveAgainst(attacker, defender);
+    if (statusMove) {
+      attacker.statusChoice = (attacker.statusChoice || 0) + (DATA.battle?.statusMoveChance || 0.3);
+      if (attacker.statusChoice >= 1) {
+        attacker.statusChoice -= 1;
+        procBattleStatus(attacker, defender, statusMove.effect, `status:${statusMove.move.key}`);
+        return 0;
+      }
+    }
+    const selected = bestDamageMove(attacker, defender, allySide ? null : { damageMultiplier });
+    const damage = Math.max(1, Math.floor(selected.damage));
+    defender.hp = Math.max(0, defender.hp - damage);
+    if (defender.hp > 0) {
+      if (defender.status === "freeze" && selected.move?.type === "fire") defender.status = null;
+      procBattleStatus(attacker, defender, statusEffectOf(selected.move), `damage:${selected.move?.key}`);
+    }
+    return damage;
   }
 
   function simulateDeterministicBattle(allies, encounter) {
     const detail = { kind: encounter.kind, name: encounter.name, enemies: [], allyKos: [] };
-    for (const enemySpec of encounter.enemies || []) {
-      const enemy = freshBattleUnit({ id: enemySpec.id, level: enemySpec.level, shiny: false, rank: 0 }, encounter.hpMultiplier || 1);
-      const enemyDetail = { id: enemy.id, level: enemy.level, maxHp: enemy.maxHp, turns: 0 };
-      while (enemy.hp > 0 && allies.some((ally) => ally.hp > 0)) {
-        const matchup = pickBattleAlly(allies, enemy, encounter.damageMultiplier || 1);
-        if (!matchup) break;
-        const { ally, outgoing, incoming, allyFirst } = matchup;
-        const turnsToWin = Math.ceil(enemy.hp / outgoing);
-        const enemyHitsBeforeWin = allyFirst ? Math.max(0, turnsToWin - 1) : turnsToWin;
-        const hitsToAllyKo = Math.ceil(ally.hp / incoming);
-        if (enemyHitsBeforeWin < hitsToAllyKo) {
-          ally.hp -= enemyHitsBeforeWin * incoming;
-          enemy.hp = 0;
-          enemyDetail.turns += turnsToWin;
-          continue;
-        }
-        const allyAttacks = allyFirst ? hitsToAllyKo : Math.max(0, hitsToAllyKo - 1);
-        enemy.hp -= allyAttacks * outgoing;
-        ally.hp = 0;
-        enemyDetail.turns += hitsToAllyKo;
-        if (!detail.allyKos.includes(ally.uid)) detail.allyKos.push(ally.uid);
+    for (const ally of allies) Object.assign(ally, { confused: 0, active: false });
+    const enemies = (encounter.enemies || []).map((enemySpec, index) => ({
+      ...freshBattleUnit({ uid: `enemy-${index}`, id: enemySpec.id, level: enemySpec.level, shiny: false, rank: 0 }, encounter.hpMultiplier || 1),
+      boss: !!encounter.boss,
+    }));
+    const slots = Math.max(1, Math.min(Number(encounter.slots) || 1, enemies.length, allies.length));
+    let rounds = 0;
+    while (enemies.some((enemy) => enemy.hp > 0) && allies.some((ally) => ally.hp > 0) && rounds < 200) {
+      rounds += 1;
+      const activeEnemies = enemies.filter((enemy) => enemy.hp > 0).slice(0, slots);
+      const activeAllies = pickBattleAllies(allies, activeEnemies, slots, encounter.damageMultiplier || 1);
+      const queue = [
+        ...activeAllies.map((unit) => ({ unit, allySide: true })),
+        ...activeEnemies.map((unit) => ({ unit, allySide: false })),
+      ].sort((a, b) => battleSpeed(b.unit) - battleSpeed(a.unit) || Number(!b.allySide) - Number(!a.allySide));
+      for (const action of queue) {
+        if (action.unit.hp <= 0) continue;
+        const targets = (action.allySide ? activeEnemies : activeAllies).filter((unit) => unit.hp > 0);
+        const target = chooseBattleTarget(action.unit, targets, action.allySide);
+        if (!target) continue;
+        const before = beforeBattleAction(action.unit);
+        if (!before.skip) performBattleAction(action.unit, target, action.allySide, encounter.damageMultiplier || 1);
+        afterBattleAction(action.unit);
+        if (action.allySide && action.unit.hp <= 0 && !detail.allyKos.includes(action.unit.uid)) detail.allyKos.push(action.unit.uid);
+        if (!action.allySide && target.hp <= 0 && !detail.allyKos.includes(target.uid)) detail.allyKos.push(target.uid);
       }
-      enemyDetail.remainingHp = Math.max(0, enemy.hp);
-      detail.enemies.push(enemyDetail);
-      if (enemy.hp > 0) return { win: false, detail };
     }
-    return { win: true, detail };
+    detail.enemies = enemies.map((enemy) => ({ id: enemy.id, level: enemy.level, maxHp: enemy.maxHp, turns: rounds, remainingHp: Math.max(0, enemy.hp), status: enemy.status }));
+    return { win: !enemies.some((enemy) => enemy.hp > 0), detail };
   }
 
   function simulateChapterTeam(save, team, chapterIndex) {
@@ -1024,7 +1238,7 @@
     let reachedLeader = false;
     for (const encounter of sequence) {
       if (encounter.kind === "heal") {
-        for (const ally of allies) ally.hp = ally.maxHp;
+        for (const ally of allies) Object.assign(ally, { hp: ally.maxHp, status: null, statusLeft: 0, confused: 0 });
         details.push({ kind: "heal", name: encounter.name });
         continue;
       }
@@ -1160,6 +1374,50 @@
     return { team: bestTeam, simulation: best.result };
   }
 
+  async function optimizeChapterTeamCooperatively(save, candidates, initial, chapterIndex, scoreOptions, excludedSignatures) {
+    if (chapterIndex == null || initial.length < 2 || !chapter(chapterIndex)?.steps?.length) return { team: initial, simulation: null };
+    const continuity = new Set(save.teamSets?.list?.[4] || save.team || []);
+    const ranked = candidates.map((mon) => ({
+      mon,
+      score: scoreCandidate(mon, scoreOptions.enemies, continuity, [], scoreOptions.levelWeight, scoreOptions.preferredLevel, save, scoreOptions.targetLevel).score,
+    })).sort((a, b) => b.score - a.score);
+    const seen = new Set();
+    const pool = [...initial, ...ranked.map((entry) => entry.mon)].filter((mon) => {
+      const key = `${teamIdentity(mon)}|${mon.uid}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 12);
+    const cache = new Map();
+    const evaluate = (team) => {
+      const signature = team.map((mon) => mon.uid).sort().join("|");
+      if (excludedSignatures.has(signature)) return { score: -Infinity, result: null };
+      if (!cache.has(signature)) {
+        const result = simulateChapterTeam(save, team, chapterIndex);
+        cache.set(signature, { score: chapterSimulationScore(result), result });
+      }
+      return cache.get(signature);
+    };
+    let bestTeam = initial.slice();
+    let best = evaluate(bestTeam);
+    let evaluations = 1;
+    for (let slot = 0; slot < bestTeam.length; slot += 1) {
+      for (const candidate of pool) {
+        if (bestTeam.some((mon, index) => index !== slot && teamIdentity(mon) === teamIdentity(candidate))) continue;
+        const trial = bestTeam.slice();
+        trial[slot] = candidate;
+        const evaluated = evaluate(trial);
+        if (evaluated.score > best.score + 1e-9) {
+          bestTeam = trial;
+          best = evaluated;
+        }
+        evaluations += 1;
+        if (evaluations % 4 === 0) await sleep(0);
+      }
+    }
+    return { team: bestTeam, simulation: best.result };
+  }
+
   function chapterOptimizationWorker(event) {
     const { allies: allyRows, sequence, initialUids, excludedSignatures } = event.data;
     const allyByUid = new Map(allyRows.map((ally) => [ally.uid, ally]));
@@ -1290,10 +1548,13 @@
         worker.postMessage({ allies, sequence: compactSequence, initialUids: initial.map((mon) => String(mon.uid)), excludedSignatures: [...excludedSignatures] });
       });
       const byUid = new Map(pool.map((mon) => [String(mon.uid), mon]));
-      return { team: result.uids.map((uid) => byUid.get(uid)).filter(Boolean), simulation: result.simulation };
+      const team = result.uids.map((uid) => byUid.get(uid)).filter(Boolean);
+      const strictSimulation = simulateChapterTeam(save, team, chapterIndex);
+      if (strictSimulation.clear) return { team, simulation: strictSimulation };
+      return optimizeChapterTeamCooperatively(save, candidates, initial, chapterIndex, scoreOptions, excludedSignatures);
     } catch (error) {
       log(`后台战斗模拟不可用，改用限量计算：${error.message}`);
-      return optimizeChapterTeam(save, candidates, initial, chapterIndex, scoreOptions, excludedSignatures);
+      return optimizeChapterTeamCooperatively(save, candidates, initial, chapterIndex, scoreOptions, excludedSignatures);
     } finally {
       URL.revokeObjectURL(blobUrl);
     }
@@ -1812,6 +2073,12 @@
     renderStatus();
     if (settings.lockTeam5 || runtime.userTeamOverride) {
       log(`第五队已锁定，仅生成推荐：${plan.details.map((item) => item.name).join("、")}`);
+      return;
+    }
+    if (plan.simulation && !plan.simulation.clear) {
+      runtime.teamStatus = `未应用：没有通过整章校验的阵容（${plan.simulation.completed}/${plan.simulation.total}）`;
+      log(runtime.teamStatus, "error");
+      renderStatus();
       return;
     }
     await configurePreset(4, plan.mons.map((mon) => mon.uid));
@@ -3704,7 +3971,7 @@
       .pca-native-bar{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto auto;align-items:center;gap:8px;width:100%;height:44px;padding:0 10px;border:2px solid var(--line,#343b56);border-radius:var(--r-md,12px);background:var(--panel-2,#20253a);color:var(--text,#eef2ff);cursor:pointer;transition:border-color .15s,background .15s}.pca-native-bar:hover{border-color:var(--line-hover,#536080);background:var(--panel-3,#2b3350)}.pca-native-brand{font-weight:700;white-space:nowrap}.pca-native-item{min-width:0;color:var(--muted,#8fa0c6);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.pca-native-item b{color:var(--text,#eef2ff);margin-left:4px}.pca-native-open{color:var(--muted,#8fa0c6);font-size:12px;white-space:nowrap}
       .pca-modal{display:none;position:fixed;inset:0;z-index:2147483646;align-items:flex-start;justify-content:center;padding:var(--pca-dock-top,12px) 24px 12px}.pca-modal-shade{position:absolute;inset:0;border:0;background:#050711b8;cursor:default}.pca-dialog{position:relative;width:min(620px,calc(100vw - 32px));max-height:min(calc(100vh - var(--pca-dock-top,12px) - 12px),760px);display:flex;flex-direction:column;background:#151827;border:1px solid #46506c;border-radius:14px;box-shadow:0 20px 60px #000b;overflow:hidden}#${PANEL_ID}:not(.collapsed) .pca-modal{display:flex}
       #${PANEL_ID}.floating .pca-modal{pointer-events:none;padding:0}#${PANEL_ID}.floating .pca-modal-shade{display:none}#${PANEL_ID}.floating .pca-dialog{position:fixed;pointer-events:auto;resize:both;min-width:min(360px,calc(100vw - 24px));min-height:min(240px,calc(100vh - 24px));max-width:calc(100vw - 24px);max-height:calc(100vh - 24px)}#${PANEL_ID}.floating .pca-head{cursor:move;touch-action:none}
-      .pca-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#20253a;border-bottom:1px solid #343b56;user-select:none}.pca-head b{flex:1}.pca-head button{cursor:pointer}.pca-ver{color:#8ea0ca;font-size:11px}
+      .pca-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#20253a;border-bottom:1px solid #343b56;user-select:none}.pca-head b{flex:1}.pca-head button{cursor:pointer}.pca-ver{color:#8ea0ca;font-size:11px}.pca-project-icon{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:1px solid #536080;border-radius:8px;color:#dbe5ff;background:#2b3350;text-decoration:none}.pca-project-icon:hover{background:#3a466c}.pca-project-icon svg{width:17px;height:17px;fill:currentColor}.pca-link-btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
       .pca-body{overflow:auto;min-height:0}.pca-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px 12px;padding:8px 12px;background:#181d2d;border-bottom:1px solid #343b56}.pca-summary span{color:#8fa0c6;min-width:0}.pca-summary b{color:#eef2ff;margin-left:5px}.pca-summary-main{display:contents}.pca-summary-extra{display:contents}
       .pca-tabs{display:flex;overflow-x:auto;background:#181c2c;border-bottom:1px solid #343b56;padding:0 6px}.pca-tab{flex:0 0 auto;border:0;border-bottom:2px solid transparent;background:transparent;color:#94a3c8;padding:9px 8px;cursor:pointer}.pca-tab:hover{color:#dbe5ff}.pca-tab.active{color:#fff;border-bottom-color:#6f9cff;background:#20263a}
       .pca-tabpanel{display:none;padding:10px 12px}.pca-tabpanel.active{display:block}
@@ -3731,7 +3998,7 @@
     panel.innerHTML = `
       <button type="button" class="pca-native-bar" data-act="collapse" aria-expanded="${!settings.collapsed}" aria-label="${t("expand")}"><span class="pca-native-brand">PokéCatch</span><span class="pca-native-item">${t("task")}<b data-status="mode">${t("idle")}</b></span><span class="pca-native-item pca-native-target">${t("target")}<b data-status="target">—</b></span><span class="pca-native-item pca-native-progress">${t("progress")}<b data-status="attempts">0</b></span><span class="pca-native-open">${t("expand")}</span></button>
       <div class="pca-modal"><button type="button" class="pca-modal-shade" data-act="collapse" aria-label="${t("collapse")}"></button><section class="pca-dialog" role="dialog" aria-modal="${!settings.floating}" aria-label="${t("assistant")}">
-      <div class="pca-head"><b>${t("assistant")}</b><select class="pca-select pca-lang" data-select-setting="language" aria-label="Language"><option value="auto" ${settings.language === "auto" ? "selected" : ""}>${t("auto")}</option><option value="zh" ${settings.language === "zh" ? "selected" : ""}>中文</option><option value="en" ${settings.language === "en" ? "selected" : ""}>English</option></select><span class="pca-ver">v${VERSION}</span><button class="pca-btn" data-act="float">${settings.floating ? t("dockWindow") : t("floatWindow")}</button><button class="pca-btn" data-act="collapse">${t("collapse")}</button></div>
+      <div class="pca-head"><b>${t("assistant")}</b><select class="pca-select pca-lang" data-select-setting="language" aria-label="Language"><option value="auto" ${settings.language === "auto" ? "selected" : ""}>${t("auto")}</option><option value="zh" ${settings.language === "zh" ? "selected" : ""}>中文</option><option value="en" ${settings.language === "en" ? "selected" : ""}>English</option></select><span class="pca-ver">v${VERSION}</span><a class="pca-project-icon" href="${PROJECT_URL}" target="_blank" rel="noopener noreferrer" title="${t("author")}: stdAri · GitHub" aria-label="${t("author")}: stdAri · GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .7a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.24c-3.22.7-3.9-1.37-3.9-1.37-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.71.08-.71 1.16.08 1.78 1.2 1.78 1.2 1.04 1.77 2.72 1.26 3.38.96.1-.75.4-1.26.74-1.55-2.57-.29-5.27-1.29-5.27-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.16 1.18a10.97 10.97 0 0 1 5.75 0c2.2-1.49 3.16-1.18 3.16-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.71 5.39-5.29 5.68.42.36.79 1.06.79 2.14v3.18c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .7Z"/></svg></a><button class="pca-btn" data-act="float">${settings.floating ? t("dockWindow") : t("floatWindow")}</button><button class="pca-btn" data-act="collapse">${t("collapse")}</button></div>
       ${statusSummaryHtml()}<div class="pca-body">
         <div class="pca-tabs" role="tablist" aria-label="${t("assistant")}">
           ${[["push",t("pushTab")],["collect",t("collectTab")],["training",t("trainingTab")],["team",t("teamTab")],["berries",t("berriesTab")],["diagnostics",t("diagnosticsTab")]].map(([key,label]) => `<button class="pca-tab ${settings.activeTab === key ? "active" : ""}" type="button" role="tab" aria-selected="${settings.activeTab === key}" data-tab="${key}">${label}</button>`).join("")}
@@ -3813,6 +4080,7 @@
             <div class="pca-row"><button class="pca-btn" data-act="debug-export">${t("debugExport")}</button><button class="pca-btn danger" data-act="debug-clear">${t("debugClear")}</button></div>
           </div>
           <div class="pca-card"><h4>${t("diagnostic")}</h4><div id="pca-error" class="pca-note">${t("noError")}</div><div class="pca-row"><button class="pca-btn" data-act="copydiag">${t("copyDiagnostic")}</button></div></div>
+          <div class="pca-card"><h4>${t("projectLinks")}</h4><div class="pca-note">${t("author")}: <b>stdAri</b></div><div class="pca-row"><a class="pca-btn pca-link-btn" href="${PROJECT_URL}" target="_blank" rel="noopener noreferrer">${t("githubProject")}</a><a class="pca-btn primary pca-link-btn" href="${ISSUES_URL}" target="_blank" rel="noopener noreferrer">${t("reportIssue")}</a></div><div class="pca-note">${t("issueNote")}</div></div>
           <div class="pca-card"><h4>${t("logs")}</h4><div id="pca-log" class="pca-log"></div></div>
         </div>
       </div></section></div>`;
@@ -4087,7 +4355,7 @@
     if (!handle || !dialog) return;
     let drag = null;
     handle.addEventListener("pointerdown", (event) => {
-      if (!settings.floating || event.button !== 0 || event.target.closest("button,select,input")) return;
+      if (!settings.floating || event.button !== 0 || event.target.closest("a,button,select,input")) return;
       const rect = dialog.getBoundingClientRect();
       drag = { pointerId: event.pointerId, dx: event.clientX - rect.left, dy: event.clientY - rect.top };
       handle.setPointerCapture(event.pointerId);
@@ -4244,7 +4512,7 @@
     try {
       const session = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
       if (!session?.running || !["push", "collect", "roaming", "combined"].includes(session.mode)) return;
-      const labels = { push: "推图", collect: "普通图鉴收集", roaming: "神兽追踪", combined: "协同收集" };
+      const labels = { push: "推图", collect: "普通图鉴收集", roaming: "神兽收集", combined: "协同收集" };
       log(`检测到上次未结束的${labels[session.mode]}任务，请手动点击对应入口恢复`);
       notifyUser("发现未结束任务", "为安全起见没有自动恢复，请在面板中确认启动。 ");
     } catch { /* ignore */ }

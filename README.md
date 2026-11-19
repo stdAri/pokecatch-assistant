@@ -8,7 +8,7 @@
 
 <p>
   <a href="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/stdAri/pokecatch-assistant/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="CHANGELOG.md"><img alt="Version 0.14.1" src="https://img.shields.io/badge/version-0.14.1-blue"></a>
+  <a href="CHANGELOG.md"><img alt="Version 0.16.0" src="https://img.shields.io/badge/version-0.16.0-blue"></a>
   <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
   <img alt="Tampermonkey userscript" src="https://img.shields.io/badge/Tampermonkey-userscript-00485b?logo=tampermonkey">
   <img alt="Simplified Chinese and English" src="https://img.shields.io/badge/UI-简体中文%20%7C%20English-7c3aed">
@@ -41,7 +41,7 @@
 | 🗺️ 自动推图 | 从当前地区剧情前沿持续推进 | 根据 Boss 与已观察敌人配队；等级不足时练级，排除等级因素后连续失败会更换组合 |
 | 📚 全图鉴收集 | 自动寻找并捕获缺失目标 | 支持普通路线、特殊地点及洛托姆条件静态事件；显示最多5个待抓目标，必要时只推进到下一次解锁 |
 | 🐾 神兽收集 | 按所选地区追踪徘徊神兽并挑战已开放的固定地点 | 支持神兽收集或普通＋神兽协同。徘徊目标优先，地点受限时显示缺少的条件 |
-| ⚔️ 智能配队 | 为推图、收集和神兽任务生成阵容 | 整队连续模拟道路、训练家、治疗点与道馆，并综合属性、招式、等级和培养价值；神兽队伍强优先选择 Lv.90+ |
+| ⚔️ 智能配队 | 为推图、收集和神兽任务生成阵容 | 按真实出场顺序、同时在场槽位、自动换人和异常状态连续模拟整章；没有校验通过的队伍时不会覆盖第五队 |
 
 ### 🧰 辅助功能
 
@@ -58,15 +58,16 @@
 | 🪟 双语界面 | 简体中文 / English，可跟随游戏语言；含六个标签页、顶部状态栏和可拖动缩放的浮动窗口 |
 | 🩺 诊断与保护 | 记录任务、目标、位置和日志；未知游戏版本会警告，存档结构或关键页面不兼容时安全暂停 |
 | 🧪 战斗调试 | 默认关闭；按一次完整章节挑战记录配队、节点、伤害、剩余状态与结果，可导出 JSON，数据仅存于插件 IndexedDB |
+| 🐙 项目与反馈 | 标题栏可直接打开 GitHub；诊断页标明作者并提供源码与问题反馈入口 |
 
 ### 🎯 四种自动任务
 
-| 模式 | 普通图鉴 | 徘徊神兽 | 自动推图 |
+| 模式 | 普通图鉴 | 神兽收集 | 自动推图 |
 | --- | :---: | :---: | :---: |
 | 推图 | — | — | 持续推进当前地区 |
 | 普通图鉴收集 | ✓ | — | 仅在目标受剧情锁定时按需推进 |
-| 仅追踪神兽 | — | ✓ | — |
-| 普通 + 神兽协同 | ✓ | ✓，出现时优先 | 仅在目标受剧情锁定时按需推进 |
+| 神兽收集 | — | ✓，徘徊优先，其次固定地点 | — |
+| 普通 + 神兽协同 | ✓ | ✓，徘徊优先，其次固定地点 | 仅在目标受剧情锁定时按需推进 |
 
 ### 🚀 安装
 
@@ -139,7 +140,7 @@ npm run dev
 | 🗺️ Story progression | Continues from the current region's story frontier | Recommends a team for bosses and observed enemies, trains when underleveled, and changes combinations after repeated non-level-related defeats |
 | 📚 Pokédex completion | Finds and catches missing targets | Supports the current region, all unlocked regions, or a custom scope; shows up to five queued targets and advances only to the next required unlock |
 | 🐾 Legendary collection | Track active roamers and enter open fixed locations in the selected regions | Legendary-only and combined modes are available. Entry conditions appear in the list. |
-| ⚔️ Deterministic team planning | Builds teams for story, collection, and roamers | Considers type matchups, base stats, learned moves, level, and long-term value; roamer teams strongly prefer Lv.90+ members |
+| ⚔️ Deterministic team planning | Builds teams for story, collection, and roamers | Simulates turn order, active battle slots, automatic switching, persistent status effects, and healing across the chapter; a failing team is never applied to preset 5 |
 
 ### 🧰 Supporting features
 
@@ -156,15 +157,16 @@ npm run dev
 | 🪟 Bilingual interface | Simplified Chinese / English, six tabs, a native top-bar summary, and an optional draggable, resizable floating window |
 | 🩺 Diagnostics and safeguards | Warns on an unverified game build, and pauses safely when the save structure or critical page controls are incompatible |
 | 🧪 Battle debugging | Off by default; records one complete chapter attempt with team decisions, nodes, damage, remaining state, and outcome in extension-only IndexedDB, with JSON export |
+| 🐙 Project & feedback | Opens GitHub from the title bar; the Diagnostics tab identifies the author and links to the source and issue form |
 
 ### 🎯 Automation modes
 
-| Mode | Ordinary Pokédex | Roamers | Story advancement |
+| Mode | Ordinary Pokédex | Legendary collection | Story advancement |
 | --- | :---: | :---: | :---: |
 | Story | — | — | Continues through the current region |
 | Pokédex collection | ✓ | — | Only when a target is story-locked |
-| Roamers only | — | ✓ | — |
-| Pokédex + roamers | ✓ | ✓, takes priority while active | Only when a target is story-locked |
+| Legendary collection | — | ✓, active roamers before fixed locations | — |
+| Pokédex + legendaries | ✓ | ✓, active roamers before fixed locations | Only when a target is story-locked |
 
 ### 🚀 Installation
 

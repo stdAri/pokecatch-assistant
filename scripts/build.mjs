@@ -84,6 +84,7 @@ function evaluateLiteral(source, args = {}) {
 const pokedex = evaluateLiteral(extractLiteral("a.POKEDEX=[", "[", "]"));
 const moves = evaluateLiteral(extractLiteral("a.MOVES={", "{", "}"));
 const evolutions = evaluateLiteral(extractLiteral("a.EVOLUTIONS={", "{", "}"));
+const statusMoves = evaluateLiteral(extractLiteral("a.STATUS=function(){const t={", "{", "}"));
 const typeChart = evaluateLiteral(extractLiteral("a.TYPE_CHART={", "{", "}"));
 const encounters = evaluateLiteral(extractLiteral("a.ENCOUNTERS={", "{", "}"));
 const habitats = evaluateLiteral(extractLiteral("a.HABITATS={", "{", "}"));
@@ -218,6 +219,7 @@ const compactChapters = chapters.map((chapter, index) => {
         team: step.team || [],
         scale: !!step.scale,
         below: step.below ?? null,
+        double: !!step.double,
       } : {}),
       ...(step.kind === "static" ? {
         id: step.id,
@@ -295,6 +297,25 @@ const compactChapters = chapters.map((chapter, index) => {
   };
 });
 
+const preEvolution = new Map();
+for (const [from, options] of Object.entries(evolutions)) {
+  for (const option of options) if (!preEvolution.has(Number(option.to))) preEvolution.set(Number(option.to), Number(from));
+}
+
+function inheritedLearnset(pokemon) {
+  const rows = [];
+  const seen = new Set();
+  for (let id = pokemon.id; id != null; id = preEvolution.get(Number(id))) {
+    const ancestor = pokedex.find((entry) => Number(entry.id) === Number(id));
+    for (const [level, key] of ancestor?.learn || []) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      rows.push([level, key]);
+    }
+  }
+  return rows.sort((a, b) => a[0] - b[0] || a[1].localeCompare(b[1]));
+}
+
 const compactSpecies = Object.fromEntries(
   pokedex.map((pokemon) => [
     pokemon.id,
@@ -302,7 +323,7 @@ const compactSpecies = Object.fromEntries(
       n: pokemonNames[pokemon.id] || pokemon.name,
       t: pokemon.types,
       s: [pokemon.stats.hp, pokemon.stats.atk, pokemon.stats.def, pokemon.stats.spa, pokemon.stats.spd, pokemon.stats.spe],
-      l: pokemon.learn,
+      l: inheritedLearnset(pokemon),
       g: !!pokemon.legendary,
       m: !!pokemon.mythical,
     },
@@ -348,6 +369,10 @@ const compactMoves = Object.fromEntries(
   Object.entries(moves).map(([key, move]) => [key, [move.type, move.power || 0, move.acc || 100, move.cat || "status"]]),
 );
 
+const compactStatusMoves = Object.fromEntries(
+  Object.entries(statusMoves).map(([key, [status, chance]]) => [key, [status, chance]]),
+);
+
 const compactEvolutions = Object.fromEntries(
   Object.entries(evolutions).map(([id, options]) => [id, options.map((option) => ({
     to: option.to,
@@ -385,6 +410,21 @@ const battle = {
   hpLevelScale: numericConfig("HP_LEVEL_SCALE", 1.5),
   hpLevelMax: numericConfig("HP_LEVEL_MAX", 2.5),
   hpBoost: numericConfig("HP_BOOST", 1.1),
+  statusMoveChance: numericConfig("STATUS_MOVE_CHANCE", 0.3),
+  fullParalysisChance: numericConfig("FULL_PARA_CHANCE", 0.25),
+  confusionSelfHitChance: numericConfig("CONFUSION_SELF_HIT", 1 / 3),
+  thawChance: numericConfig("THAW_CHANCE", 0.2),
+  statusFx: {
+    dotTurns: Number(bundle.match(/STATUS_FX:\{STAT:\{[^}]+\},DOT_TURNS:(\d+)/)?.[1] || 5),
+    paralysisTurns: Number(bundle.match(/STATUS_FX:\{STAT:\{[^}]+\},DOT_TURNS:\d+,PARA_TURNS:(\d+)/)?.[1] || 3),
+  },
+  bossStatus: {
+    hurt: numericConfig("HURT", 60),
+    dotTurns: Number(bundle.match(/BOSS_STATUS:\{HURT:[.\d]+,DOT_TURNS:(\d+)/)?.[1] || 4),
+    lockMax: Number(bundle.match(/BOSS_STATUS:\{HURT:[.\d]+,DOT_TURNS:\d+,LOCK_MAX:(\d+)/)?.[1] || 2),
+    paralysisBlock: Number(bundle.match(/BOSS_STATUS:\{[^}]+PARA_BLOCK:([.\d]+)/)?.[1] || 0.2),
+  },
+  trainerItemEvolutionLevel: numericConfig("TRAINER_ITEM_EVO_LEVEL", 40),
 };
 
 const compactCondition = (condition) => condition ? {
@@ -433,6 +473,7 @@ const gameData = {
   langBuild: langMatch?.[1] || "unknown",
   species: compactSpecies,
   moves: compactMoves,
+  statusMoves: compactStatusMoves,
   evolutions: compactEvolutions,
   typeChart,
   chapters: compactChapters,
