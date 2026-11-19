@@ -50,8 +50,8 @@ function sourceFunctions(names, context = {}) {
 }
 
 test("generated data matches the inspected game build", () => {
-  assert.equal(data.appBuild, "c742526349");
-  assert.equal(data.langBuild, "42252d10e8");
+  assert.equal(data.appBuild, "0a7dcb2280");
+  assert.equal(data.langBuild, "383a4bbde8");
   assert.equal(Object.keys(data.species).length, 721);
   assert.equal(data.species[4].n, "小火龙");
   assert.deepEqual(data.species[4].t, ["fire"]);
@@ -65,21 +65,21 @@ test("generated data matches the inspected game build", () => {
   assert.deepEqual(data.battle.gymTrainers.below, [4, 2, 2]);
 });
 
-test("userscript and development metadata share version 0.14.1", () => {
-  assert.equal(packageJson.version, "0.14.1");
-  assert.ok(source.includes("// @version      0.14.1"));
-  assert.ok(source.includes('const VERSION = "0.14.1"'));
-  assert.ok(viteConfig.includes('version: "0.14.1"'));
+test("userscript and development metadata share version 0.14.2", () => {
+  assert.equal(packageJson.version, "0.14.2");
+  assert.ok(source.includes("// @version      0.14.2"));
+  assert.ok(source.includes('const VERSION = "0.14.2"'));
+  assert.ok(viteConfig.includes('version: "0.14.2"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   assert.ok(viteConfig.includes("/;\\r?\\n  const SAVE_KEY/"));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.14.1-blue"));
+  assert.ok(readme.includes("version-0.14.2-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.14.1"));
   assert.ok(readme.includes("884f9e9fcc028a6a3cc956d83e6983394b657009/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.14.1"));
+  assert.ok(changelog.includes("## 0.14.2"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -104,7 +104,7 @@ test("compatibility verifies known bundles and allows structurally compatible un
   const unknown = validateCompatibility();
   assert.equal(unknown.ok, true);
   assert.equal(unknown.verified, false);
-  assert.equal(unknown.expected, "c742526349, 7acad22262, 021c85dbba, 6e45170313");
+  assert.equal(unknown.expected, "0a7dcb2280, 7acad22262, 021c85dbba, 6e45170313");
   document.querySelector = (selector) => selector === "#timeline" ? null : {};
   const incompatible = validateCompatibility();
   assert.equal(incompatible.ok, false);
@@ -123,12 +123,73 @@ test("Feather Badge scales Winona to the chapter's actual level range", () => {
   assert.ok(feather.steps.some((step) => step.kind === "gym"));
 });
 
+test("battle data keeps inherited moves and projects explicit route species", () => {
+  assert.ok(data.species[171].l.some(([, key]) => key === "thunderbolt"));
+  const { projectEnemySpeciesId } = sourceFunctions(["projectEnemySpeciesId"], {
+    DATA: data,
+    species: (id) => data.species[id],
+    baseStatTotal: (id) => data.species[id].s.reduce((sum, stat) => sum + stat, 0),
+  });
+  assert.equal(projectEnemySpeciesId(41, 56), 169);
+  assert.ok(data.chapters[39].steps.some((step) => step.species?.includes(41)));
+});
+
+test("current chapter simulation prefers the generated saved node order", () => {
+  const { savedChapterBattleSequence } = sourceFunctions(["savedChapterBattleSequence"], {
+    DATA: data,
+    chapter: () => ({ ace: 57 }),
+    species: (id) => data.species[id],
+    projectEnemySpeciesId: (id) => id,
+  });
+  const sequence = savedChapterBattleSequence({ adv: { chapter: 39, nodes: [
+    { type: "wild", id: 320, level: 52, name: "124号道路" },
+    { type: "trainer", team: [[169, 56], [169, 56]], double: true, name: "宇宙中心" },
+    { type: "heal", name: "绿岭市" },
+  ] } }, 39);
+  assert.deepEqual(Array.from(sequence, (entry) => entry.kind), ["wild", "trainer", "heal"]);
+  assert.equal(sequence[1].slots, 2);
+  assert.deepEqual(Array.from(sequence[1].enemies, (enemy) => enemy.id), [169, 169]);
+});
+
+test("deterministic status model applies official durations, immunities, and residual damage", () => {
+  const helpers = sourceFunctions(["canInflictStatus", "applyBattleStatus", "beforeBattleAction", "afterBattleAction"], {
+    DATA: data,
+    species: (id) => data.species[id],
+    battleStats: () => ({ atk: 100, def: 100 }),
+  });
+  assert.equal(helpers.canInflictStatus({ id: 4, status: null }, "burn"), false);
+  assert.equal(helpers.canInflictStatus({ id: 81, status: null }, "poison"), false);
+
+  const burned = { id: 1, level: 50, maxHp: 80, hp: 80, status: null, statusLeft: 0 };
+  helpers.applyBattleStatus(burned, "burn");
+  for (let turn = 0; turn < 5; turn += 1) assert.equal(helpers.afterBattleAction(burned), 10);
+  assert.equal(burned.hp, 30);
+  assert.equal(burned.status, null);
+
+  const sleeping = { id: 1, level: 50, status: null, statusLeft: 0 };
+  helpers.applyBattleStatus(sleeping, "sleep");
+  assert.deepEqual([0, 1, 2].map(() => helpers.beforeBattleAction(sleeping).skip), [true, true, true]);
+  assert.equal(helpers.beforeBattleAction(sleeping).skip, false);
+});
+
 test("chapter simulation carries damage between battles and honors healing nodes", () => {
+  const simulationFunctions = [
+    "freshBattleUnit", "battleMatchup", "pickBattleAllies", "statusEffectOf", "canInflictStatus",
+    "applyBattleStatus", "procBattleStatus", "statusMoveAgainst", "battleSpeed", "beforeBattleAction",
+    "afterBattleAction", "chooseBattleTarget", "performBattleAction", "simulateDeterministicBattle", "simulateChapterTeam",
+  ];
+  const simulationContext = {
+    DATA: data,
+    species: () => ({ t: ["normal"], l: [] }),
+    typeEffect: () => 1,
+    learnedMoves: () => [],
+    battleStats: (mon) => ({ hp: 10, atk: 10, def: 10, spe: mon.uid?.startsWith("enemy-") ? 10 : 20 }),
+    bestDamageMove: (attacker) => ({ move: { key: "tackle", type: "normal", power: 40, accuracy: 100 }, damage: attacker.uid?.startsWith("enemy-") ? 4 : 6 }),
+  };
   const helpers = sourceFunctions([
-    "freshBattleUnit", "battleMatchup", "pickBattleAlly", "simulateDeterministicBattle", "simulateChapterTeam",
+    ...simulationFunctions,
   ], {
-    battleStats: (mon) => ({ hp: 10, spe: mon.uid ? 20 : 10 }),
-    bestDamageMove: (attacker) => ({ damage: attacker.uid ? 6 : 4 }),
+    ...simulationContext,
     chapterBattleSequence: () => [
       { kind: "wild", name: "A", enemies: [{ id: 1, level: 1 }] },
       { kind: "wild", name: "B", enemies: [{ id: 1, level: 1 }] },
@@ -139,10 +200,9 @@ test("chapter simulation carries damage between battles and honors healing nodes
   assert.equal(helpers.simulateChapterTeam(save, team, 0).remainingHp, 0.2);
 
   const healed = sourceFunctions([
-    "freshBattleUnit", "battleMatchup", "pickBattleAlly", "simulateDeterministicBattle", "simulateChapterTeam",
+    ...simulationFunctions,
   ], {
-    battleStats: (mon) => ({ hp: 10, spe: mon.uid ? 20 : 10 }),
-    bestDamageMove: (attacker) => ({ damage: attacker.uid ? 6 : 4 }),
+    ...simulationContext,
     chapterBattleSequence: () => [
       { kind: "wild", name: "A", enemies: [{ id: 1, level: 1 }] },
       { kind: "heal", name: "Center" },
