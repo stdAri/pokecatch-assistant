@@ -78,7 +78,7 @@
 3. 在 Tampermonkey 安装页面检查脚本名称与权限，然后保存。
 4. 刷新 Poke'Catch；游戏顶部状态栏会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.16.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/fc8f15c45b2a8a35a1eda53dfacf0727022a54c7/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.16.0 实现提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.16.1](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/fe212d1263400d7c4746b70845d7f9716d8977c1/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.16.1 实现提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
 
 如果浏览器没有自动打开安装页，也可以在 Tampermonkey 中新建脚本，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
@@ -175,7 +175,7 @@ npm run dev
 3. Review the script name and permissions, then confirm installation.
 4. Refresh Poke'Catch; “PokeCatch Assistant” appears in the game's top bar.
 
-For an immutable fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.16.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/fc8f15c45b2a8a35a1eda53dfacf0727022a54c7/dist/pokecatch-assistant.user.js). Automatic updates still use the script's `@updateURL`.
+For an immutable fallback when GitHub Raw caches the `main` branch, use [PokeCatch Assistant v0.16.1](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/fe212d1263400d7c4746b70845d7f9716d8977c1/dist/pokecatch-assistant.user.js). Automatic updates still use the script's `@updateURL`.
 
 ### 🛡️ Safety
 
