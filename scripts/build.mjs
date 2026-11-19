@@ -466,6 +466,18 @@ const compactSpecialZones = specialZones.map((zone) => {
   };
 });
 
+// A fixed encounter may depend on several items. Match its conditions against
+// the original route loot tables so a future map reorder changes the build too.
+const conditionLeaves = (condition) => !condition ? [] : condition.kind === "all"
+  ? (condition.list || []).flatMap(conditionLeaves) : [condition];
+const legendaryItemKeys = new Set(compactSpecialZones.flatMap((zone) => conditionLeaves(zone.condition))
+  .filter((condition) => condition.kind === "item").map((condition) => condition.item));
+const roadItemSources = chapters.flatMap((entry, chapter) => entry.steps.flatMap((route, step) => {
+  if (route.kind !== "route" || !route.item) return [];
+  return Object.entries(route.loot || {}).filter(([key]) => legendaryItemKeys.has(key))
+    .map(([key, loot]) => ({ chapter, step, key, owns: loot.owns || [], badge: loot.badge || null }));
+}));
+
 const appMatch = bundlePath.match(/app\.([^.]+)\.js$/);
 const langMatch = langPath.match(/lang-zh-Hans\.([^.]+)\.js$/);
 const gameData = {
@@ -483,6 +495,7 @@ const gameData = {
   roamingWeather,
   roamingGroups,
   specialZones: compactSpecialZones,
+  roadItemSources,
   shinyStatBonus,
   rankMax: Number(undergroundStats[1]),
   rankStatMultiplier: Number(undergroundStats[2]),

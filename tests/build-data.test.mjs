@@ -384,7 +384,7 @@ test("new regions accept missing presets and only recommend locally available Po
   assert.equal(pokemonHomeRegion(mons[1]), "johto");
   assert.equal(requiredTeamSize(save), 4);
   assert.equal(requiredTeamSize({ ...save, link: { ...save.link, side: "from" } }), 2);
-  assert.ok(source.includes("const rawCandidates = teamCandidatesForRecommendation(save);"));
+  assert.ok(source.includes("const rawCandidates = candidateOverride ?? teamCandidatesForRecommendation(save);"));
   assert.ok(source.includes("removeClearlyDominatedCandidates(save, rawCandidates"));
   assert.ok(source.includes("const fullTeamSize = requiredTeamSize(save);"));
 });

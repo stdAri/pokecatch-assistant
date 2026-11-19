@@ -40,7 +40,7 @@
 | ✨ 每日异色团体战 | 每天优先完成可用团体战 | 调用游戏原生“优化”生成2人队，两个盟友槽依次选择列表第一项；完成后恢复原任务，不改第五队 |
 | 🗺️ 自动推图 | 从当前地区剧情前沿持续推进 | 根据 Boss 与已观察敌人配队；等级不足时练级，排除等级因素后连续失败会更换组合 |
 | 📚 全图鉴收集 | 自动寻找并捕获缺失目标 | 支持普通路线、特殊地点及洛托姆条件静态事件；显示最多5个待抓目标，必要时只推进到下一次解锁 |
-| 🐾 神兽收集 | 按所选地区追踪徘徊神兽并挑战已开放的固定地点 | 支持神兽收集或普通＋神兽协同。徘徊目标优先，地点受限时显示缺少的条件 |
+| 🐾 神兽收集 | 按所选地区追踪徘徊神兽、满足可执行的前置并挑战固定地点 | 显示所有缺项。支持道路道具、图鉴和训练家胜场、原生碑文与酋雷姆的精英前置 |
 | ⚔️ 智能配队 | 为推图、收集和神兽任务生成阵容 | 按真实出场顺序、同时在场槽位、自动换人和异常状态连续模拟整章；没有校验通过的队伍时不会覆盖第五队 |
 
 ### 🧰 辅助功能
@@ -66,8 +66,10 @@
 | --- | :---: | :---: | :---: |
 | 推图 | — | — | 持续推进当前地区 |
 | 普通图鉴收集 | ✓ | — | 仅在目标受剧情锁定时按需推进 |
-| 神兽收集 | — | ✓，徘徊优先，其次固定地点 | — |
+| 神兽收集 | — | ✓，徘徊优先，其次固定地点和前置 | 开启相关设置且神兽仍需解锁时推进 |
 | 普通 + 神兽协同 | ✓ | ✓，徘徊优先，其次固定地点 | 仅在目标受剧情锁定时按需推进 |
+
+固定地点使用你当前保存的专属队伍。挑战时可以点「手动换队」，调整后随游戏下一次整队生效。同一队伍连败三场后，助手才根据已启用的候选池、有效 BST 和出战规则自动轮换，并优先参考游戏的「最常选用」成员。对战塔船票、蛋和世界首领奖励仍按游戏各自的流程获取。
 
 ### 🚀 安装
 
@@ -139,7 +141,7 @@ npm run dev
 | ✨ Daily Shiny raids | Completes the available raid before other automation | Uses the game's native optimizer for the two-Pokémon raid team, chooses the first option for both ally slots, then resumes the previous task without changing Team 5 |
 | 🗺️ Story progression | Continues from the current region's story frontier | Recommends a team for bosses and observed enemies, trains when underleveled, and changes combinations after repeated non-level-related defeats |
 | 📚 Pokédex completion | Finds and catches missing targets | Supports the current region, all unlocked regions, or a custom scope; shows up to five queued targets and advances only to the next required unlock |
-| 🐾 Legendary collection | Track active roamers and enter open fixed locations in the selected regions | Legendary-only and combined modes are available. Entry conditions appear in the list. |
+| 🐾 Legendary collection | Track roamers, complete eligible prerequisites, and enter fixed locations in the selected regions | Lists all missing requirements, including items, road encounters, inscriptions, and Kyurem's Elite prerequisites |
 | ⚔️ Deterministic team planning | Builds teams for story, collection, and roamers | Simulates turn order, active battle slots, automatic switching, persistent status effects, and healing across the chapter; a failing team is never applied to preset 5 |
 
 ### 🧰 Supporting features
@@ -165,8 +167,10 @@ npm run dev
 | --- | :---: | :---: | :---: |
 | Story | — | — | Continues through the current region |
 | Pokédex collection | ✓ | — | Only when a target is story-locked |
-| Legendary collection | — | ✓, active roamers before fixed locations | — |
+| Legendary collection | — | ✓, active roamers before fixed locations and their prerequisites | When automatic story advancement is enabled and a target still needs an unlock |
 | Pokédex + legendaries | ✓ | ✓, active roamers before fixed locations | Only when a target is story-locked |
+
+Fixed encounters start with the saved zone team. Use **Edit zone team** to make manual changes, which apply at the next native heal or regroup. Automatic rotation starts after three consecutive losses with the same team and prioritizes eligible Pokémon from the game's most-used list.
 
 ### 🚀 Installation
 

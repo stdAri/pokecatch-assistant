@@ -172,6 +172,10 @@
   };
 
   const runtime = {
+    manualFixedTeam: null,
+    fixedAutoEditor: null,
+    independentRun: null,
+    independentBlocks: new Map(),
     mode: "idle",
     paused: false,
     busy: false,
@@ -199,7 +203,7 @@
     timer: null,
     chapterReset: null,
     specialEntryBlocks: new Map(),
-    lastSpecialTries: 0,
+    specialFight: null,
     lastAutomatedActionAt: 0,
     floatResizeBound: false,
     floatSizeObserver: null,
@@ -314,9 +318,15 @@
     await jitter(afterMin, afterMax);
   }
 
-  async function pacedClick(element, label, pacing) {
+  async function pacedClick(element, label, pacing, allowed = () => true) {
     if (!element) throw new Error(`找不到${label}`);
-    await pacedAction(() => element.click(), pacing);
+    let clicked = false;
+    await pacedAction(() => {
+      if (!allowed()) return;
+      element.click();
+      clicked = true;
+    }, pacing);
+    return clicked;
   }
 
   async function waitFor(getter, { timeout = 6_000, interval = 80, label = "页面状态" } = {}) {
@@ -1567,11 +1577,12 @@
       preferredLevel = null,
       targetLevel = null,
       chapterIndex = null,
+      candidateOverride = null,
     } = options || {};
     const fallbackLevel = Math.max(1, Number(targetLevel) || 1);
     const enemies = enemyProfiles(enemyIds, fallbackLevel);
     const currentFive = new Set(save.teamSets?.list?.[4] || save.team || []);
-    const rawCandidates = teamCandidatesForRecommendation(save);
+    const rawCandidates = candidateOverride ?? teamCandidatesForRecommendation(save);
     const candidates = removeClearlyDominatedCandidates(save, rawCandidates, enemies, fallbackLevel);
     const preferredUids = new Set(preferredTeamCandidates(save).map((mon) => String(mon.uid)));
     const availableIdentities = new Set(candidates.map(teamIdentity));
@@ -1632,6 +1643,7 @@
       levelWeight: COLLECTION_LEVEL_WEIGHT,
       preferredLevel: ROAMING_PREFERRED_LEVEL,
       targetLevel: 100,
+      candidateOverride: settings.candidatePool.enabled ? preferredTeamCandidates(save) : null,
     });
     return plan;
   }
@@ -1871,7 +1883,7 @@
       .sort((a,b) => Math.abs(a.index-plan.chapter)-Math.abs(b.index-plan.chapter) || a.index-b.index)[0] || null;
   }
 
-  async function switchChapter(chapterIndex, { settle = true } = {}) {
+  async function switchChapter(chapterIndex, { settle = true, restart = false, allowRestart = null } = {}) {
     const targetChapter = chapter(chapterIndex);
     const targetRegion = targetChapter?.region;
     if (!targetRegion) throw new Error(`找不到章节${chapterIndex}的数据`);
@@ -1892,16 +1904,22 @@
           {label:`${t(targetRegion)}地区标签`});
         await pacedClick(regionButton,`${t(targetRegion)}地区标签`);
       }
-      // 地图可能保留在精英联盟页，明确选择普通联盟，不误入精英挑战。
-      const normalLeague = group.length && document.querySelector('[data-lg-view="league"]');
-      if (normalLeague) await pacedClick(normalLeague,"普通宝可梦联盟");
       const row = await waitFor(() => document.querySelector(`.mp-row[data-ch="${mapChapter}"]`),
         {label:group.length?`${t(targetRegion)}宝可梦联盟列表项`:`章节${chapterIndex}列表项`});
       await pacedClick(row,"选择章节");
-      const go = await waitFor(() => document.querySelector(`.mp-go[data-go="${mapChapter}"]`),
-        {label:group.length?"宝可梦联盟进入按钮":`章节${chapterIndex}进入按钮`});
-      if (go.disabled) throw new Error(group.length?"宝可梦联盟尚未解锁":"目标章节尚未解锁");
-      await pacedClick(go,"进入章节");
+      // 选中联盟条目后才渲染普通／精英页签，地图会记住上次选择。
+      const normalLeague = group.length && document.querySelector('[data-lg-view="league"]:not(.on)');
+      if (normalLeague) await pacedClick(normalLeague, "普通宝可梦联盟");
+      if (restart) {
+        const button = document.querySelector(`#map-root .mp-restart[data-restart="${chapterIndex}"]`);
+        if (!button || button.disabled || (allowRestart && !allowRestart(readSave()))) return null;
+        await pacedClick(button, "重新开始章节");
+      } else {
+        const go = await waitFor(() => document.querySelector(`.mp-go[data-go="${mapChapter}"]`),
+          {label:group.length?"宝可梦联盟进入按钮":`章节${chapterIndex}进入按钮`});
+        if (go.disabled) throw new Error(group.length?"宝可梦联盟尚未解锁":"目标章节尚未解锁");
+        await pacedClick(go,"进入章节");
+      }
       await waitFor(() => {
         const save = readSave();
         return !save.adv.zone && !save.adv.event && !save.adv.league && !save.adv.tower && (group.length
@@ -1925,7 +1943,7 @@
   }
 
   // 特殊地点的进入按钮在详情里，必须先用地图条目打开详情。
-  async function enterSpecialZone(plan) {
+  async function enterSpecialZone(plan, prepareTeam) {
     const special = DATA.specialZones.find((item) => item.id === plan.speciesId);
     if (!special) throw new Error(`找不到 ${plan.speciesId} 的原生地点`);
     const alreadyInside = (save) => Number(save.adv.zone?.id) === special.id
@@ -1948,12 +1966,19 @@
 
     const zoneTab = document.querySelector('#map-root [data-lz-view="zone"]:not(.on)');
     if (zoneTab) await pacedClick(zoneTab, `${plan.zone}区域页`);
-    const button = document.querySelector(`#map-root .mp-go[data-zone="${special.id}"]:not([data-tier])`);
+    const selector = `#map-root .mp-go[data-zone="${special.id}"]:not([data-tier])`;
+    const button = document.querySelector(selector);
     if (!button || button.disabled) {
       return { entered: false, reason: button?.textContent?.trim()
         || (language() === "en" ? "Normal encounter unavailable" : "本轮普通捕获入口未开放") };
     }
-    await pacedClick(button, `${plan.zone}入口`);
+    if (prepareTeam) await prepareTeam();
+    if (prepareTeam && (runtime.mode === "idle" || runtime.paused)) return { entered: false, cancelled: true };
+    const ready = document.querySelector(selector);
+    if (!ready || ready.disabled) return { entered: false, reason: ready?.textContent?.trim() || "专属地点暂未开放" };
+    const clicked = await pacedClick(ready, `${plan.zone}入口`, undefined, () =>
+      !runtime.manualFixedTeam && runtime.mode !== "idle" && !runtime.paused && !nativeFixedEditor());
+    if (!clicked) return { entered: false, cancelled: true };
     try {
       await waitFor(() => alreadyInside(readSave()), { timeout: 10_000, label: `进入${plan.zone}` });
     } catch (error) {
@@ -2005,7 +2030,7 @@
     if (alternatives.length) {
       const alternative = alternatives[0];
       const previousRegion = currentRegion(save);
-      runtime.targetPlan = alternative;
+      runtime.targetPlan = plan.prerequisiteFor ? { ...alternative, prerequisiteFor: plan.prerequisiteFor } : alternative;
       await switchChapter(alternative.chapter);
       const targetSave = readSave();
       if (currentRegion(targetSave) !== previousRegion) {
@@ -2089,11 +2114,12 @@
 
   let syntheticPointerId = 10_000;
 
-  async function dragPokemon(source, destination, label) {
+  async function dragPokemon(source, destination, label, allowed = () => true) {
     if (!source || !destination) throw new Error(`找不到${label}的拖放位置`);
     const targetGap = Math.round(700 + Math.random() * 1_000);
     const elapsed = Date.now() - runtime.lastAutomatedActionAt;
     await sleep(runtime.lastAutomatedActionAt ? Math.max(0, targetGap - elapsed) : targetGap);
+    if (!allowed()) return;
     const from = source.getBoundingClientRect();
     const to = destination.getBoundingClientRect();
     const pointerId = syntheticPointerId += 1;
@@ -2636,54 +2662,50 @@
         : { met: true, reason: "" };
     }
     if (condition.kind === "all") {
-      const failed = (condition.list || [])
-        .map((item) => specialConditionStatus(save, item, special))
-        .find((item) => !item.met);
-      return failed || { met: true, reason: "" };
+      const unmet = (condition.list || []).map((item) => specialConditionStatus(save, item, special))
+        .filter((result) => !result.met);
+      return { met: unmet.length === 0, reason: unmet.map(({ reason }) => reason).filter(Boolean).join("；") };
     }
     if (condition.kind === "item") {
-      const met = Number(save.items?.[condition.item] || 0) + Number(save.link?.stash?.items?.[condition.item] || 0) > 0;
-      return { met, reason: met ? "" : (condition.text || `${language() === "en" ? "Needs item" : "需要道具"} ${condition.item}`) };
+      const met = specialItemHeld(save, condition.item);
+      if (met) return { met: true, reason: "" };
+      if (condition.item === "auroraticket") {
+        const floor = Math.max(Number(save.tower?.top || 0), Number(save.tower?.best?.floor || 0));
+        const bp = Number(save.tower?.bp || 0);
+        return { met: false, reason: language() === "en"
+          ? `AuroraTicket: Battle Tower shop · floor ${floor}/40 · ${bp}/1000 BP`
+          : `诞生之岛船票：对战塔商店兑换 · 楼层 ${floor}/40 · 对战点 ${bp}/1000` };
+      }
+      if (ROAD_ITEM_NAMES[condition.item] && save.adv.gifts?.[condition.item]) {
+        const title = roadItemName(condition.item);
+        return { met: false, reason: language() === "en"
+          ? `${title} was already found and is now missing from inventory`
+          : `${title}已拾取过，但当前库存中没有` };
+      }
+      return { met: false, reason: condition.text || `${language() === "en" ? "Needs item" : "需要道具"} ${condition.item}` };
     }
     if (condition.kind === "door") {
       const met = Boolean(save.zoneDoors?.[condition.key]);
-      return { met, reason: met ? "" : (condition.key === "regigigas"
-        ? (language() === "en" ? "Solve the Snowpoint Temple inscription with Regirock, Regice and Registeel" : "带齐雷吉洛克、雷吉艾斯、雷吉斯奇鲁，在雪峰神殿解开碑文")
-        : condition.text || t("specialConditionLocked")) };
+      const blocked = runtime.independentBlocks.get(`door:${condition.key}`);
+      const reason = [inscriptionStatus(save, condition.key), blocked?.until > Date.now() ? blocked.reason : ""].filter(Boolean).join("；");
+      return { met, reason: met ? "" : reason };
     }
     if (condition.kind === "league") {
       const badge = DATA.chapters.find((item) => item.region === condition.region && item.boss?.champion)?.boss?.badge;
       const met = Boolean(badge && save.adv.badges?.includes(badge));
       return { met, reason: met ? "" : (condition.text || t("specialConditionLocked")) };
     }
-    if (condition.kind === "dex" && special.dex) {
-      const missing = Object.keys(DATA.species).map(Number).filter((id) => (
-        id >= special.dex[0] && id <= special.dex[1] && !species(id)?.m && !isCaught(save, id)
-      ));
-      return { met: missing.length === 0, reason: missing.length ? (condition.text || t("specialConditionLocked")) : "" };
-    }
-    if (condition.kind === "type" && special.dex) {
-      const missing = Object.keys(DATA.species).map(Number).filter((id) => (
-        id >= special.dex[0] && id <= special.dex[1] && !species(id)?.g && !species(id)?.m
-        && species(id)?.t?.includes(condition.type) && !isCaught(save, id)
-      ));
-      return { met: missing.length === 0, reason: missing.length ? (condition.text || t("specialConditionLocked")) : "" };
-    }
-    if (condition.kind === "types" && condition.dex) {
-      const missing = Object.keys(DATA.species).map(Number).filter((id) => (
-        id >= condition.dex[0] && id <= condition.dex[1]
-        && id !== special.id && !species(id)?.m
-        && !(species(id)?.g && id >= special.dex[0])
-        && species(id)?.t?.some((type) => condition.types.includes(type))
-        && !isCaught(save, id)
-      ));
-      return { met: missing.length === 0, reason: missing.length ? (condition.text || t("specialConditionLocked")) : "" };
-    }
-    if (condition.kind === "count" && special.dex) {
-      const caught = Object.keys(DATA.species).map(Number).filter((id) => (
-        id >= special.dex[0] && id <= special.dex[1] && !species(id)?.g && !species(id)?.m && isCaught(save, id)
-      )).length;
-      return { met: caught >= condition.need, reason: `${language() === "en" ? "Regional species" : "地区普通图鉴"} ${caught}/${condition.need}` };
+    if (["dex", "type", "types", "count"].includes(condition.kind)) {
+      const ids = roadDexConditionIds(condition, special);
+      if (!ids.length) return { met: false, reason: t("specialConditionLocked") };
+      const have = ids.filter((id) => isCaught(save, id)).length;
+      const required = condition.kind === "count" ? condition.need : ids.length;
+      const typeNames = { electric: "电", ice: "冰", fire: "火", ground: "地面", water: "水", steel: "钢", rock: "岩石", grass: "草", bug: "虫" };
+      const types = condition.types || (condition.type ? [condition.type] : []);
+      const label = types.length ? (language() === "en" ? `Pokédex: ${types.join(" / ")}`
+        : `图鉴：${types.map((type) => typeNames[type] || type).join("／")}属性`)
+        : (language() === "en" ? "Regional Pokédex" : "地区图鉴");
+      return { met: have >= required, reason: have < required ? `${label} ${have}/${required}` : "" };
     }
     if (condition.kind === "tally") {
       const value = Number(save.stats?.byReg?.[special.region]?.[condition.field] || 0);
@@ -2691,7 +2713,9 @@
     }
     if (condition.kind === "elite") {
       const tier = Number(save.elite?.[condition.zone]?.t || 0);
-      return { met: tier >= condition.tier, reason: tier >= condition.tier ? "" : (condition.text || t("specialConditionLocked")) };
+      const blocked = runtime.independentBlocks.get(`elite:${condition.zone}:${tier + 1}`);
+      const reason = [elitePrerequisiteStatus(save, condition), blocked?.until > Date.now() ? blocked.reason : ""].filter(Boolean).join("；");
+      return { met: tier >= condition.tier, reason: tier >= condition.tier ? "" : reason };
     }
     return { met: false, reason: condition.text || t("specialConditionLocked") };
   }
@@ -2700,23 +2724,25 @@
     const special = (DATA.specialZones || []).find((item) => item.id === Number(speciesId));
     if (!special) return null;
     const regionChapters = DATA.chapters.filter((item) => item.region === special.region && item.index <= save.adv.unlocked);
-    if (!regionChapters.length) return { special, open: false, reason: t("specialRegionLocked"), chapter: null };
-    if (!regionInCollectionScope(save, special.region)) return { special, open: false, reason: t("specialOutsideScope"), chapter: null };
+    const blockers = [];
+    if (!regionChapters.length) blockers.push(t("specialRegionLocked"));
+    if (!regionInCollectionScope(save, special.region)) blockers.push(t("specialOutsideScope"));
     if (special.badge && !save.adv.badges?.includes(special.badge)) {
-      return { special, open: false, reason: language() === "en"
-        ? `Needs badge: ${special.badgeName || special.badge}`
-        : `需要徽章：${special.badgeName || special.badge}`, chapter: null };
+      blockers.push(language() === "en" ? `Needs badge: ${special.badgeName || special.badge}`
+        : `需要徽章：${special.badgeName || special.badge}`);
     }
+    if (!insideNormalSpecial(save, special.id)) {
+      const condition = specialConditionStatus(save, special.condition, special);
+      if (!condition.met) blockers.push(condition.reason || t("specialConditionLocked"));
+      blockers.push(specialTimingStatus(save, special), specialEntryIssue(special.id));
+    }
+    const unmet = [...new Set(blockers.filter(Boolean))];
+    if (unmet.length) return { special, open: false, reason: unmet.join("；"), chapter: null };
+
     const normalChapters = regionChapters.filter((item) => !item.league);
     const chapterPlan = normalChapters.find((item) => item.index === special.anchor)
       || normalChapters.find((item) => item.routes.some((route) => route.areas.some((area) => special.areas.includes(area))))
       || normalChapters.at(-1);
-    if (!insideNormalSpecial(save, special.id)) {
-      const condition = specialConditionStatus(save, special.condition, special);
-      if (!condition.met) return { special, open: false, reason: condition.reason, chapter: null };
-      const reason = specialTimingStatus(save, special) || specialEntryIssue(special.id);
-      if (reason) return { special, open: false, reason, chapter: null };
-    }
     return { special, open: true, reason: "", chapter: chapterPlan?.index ?? null };
   }
 
@@ -2786,48 +2812,954 @@
     runtime.target = null;
     runtime.targetPlan = null;
     runtime.teamPlan = null;
+    runtime.specialFight = null;
     runtime.attempts = 0;
   }
 
-  async function specialCollectionTick(save, plan) {
+  const SPECIAL_ROTATE_AFTER = 3;
+  const SPECIAL_MAX_LINEUPS = 4;
+  // The native team editor also enforces these mutually exclusive legendary pairs.
+  const SPECIAL_TEAM_APART = new Map([[643, [646, 64602]], [644, [646, 64601]]]);
+
+  function fixedTeamUids(save, zoneId) {
+    const zone = DATA.specialZones.find((item) => item.id === zoneId);
+    const valid = new Set((save.mons || []).filter((mon) => !save.link
+      || (pokemonHomeRegion(mon) === save.link.to) === (zone?.region === save.link.to)).map(({ uid }) => String(uid)));
+    return (save.eventTeams?.[`zone:${zoneId}`] || []).map(String).filter((uid) => valid.has(uid));
+  }
+
+  function fixedTeamCandidates(save, region) {
+    const pool = normalizeCandidatePool(settings.candidatePool);
+    const picked = new Set(pool.uids);
+    const regionSide = region === save.link?.to;
+    return (save.mons || []).filter((mon) => mon?.uid && mon.level > 0 && species(mon.id)
+      && (!save.link || (pokemonHomeRegion(mon) === save.link.to) === regionSide)
+      && (!pool.enabled || (picked.has(String(mon.uid)) && combinedStatValue(mon) + 1e-9 >= pool.minPower)));
+  }
+
+  function recommendFixedTeam(save, plan, foe, excluded, popular = []) {
+    const enemies = enemyProfiles([{ id: foe, level: plan.level || 100 }]);
+    const ranked = fixedTeamCandidates(save, plan.region).map((mon) => ({
+      mon, ...scoreCandidate(mon, enemies, new Set(), [], COLLECTION_LEVEL_WEIGHT, ROAMING_PREFERRED_LEVEL, save, plan.level || 100),
+    })).sort((a, b) => b.score - a.score);
+    const rank = new Map(popular.map((id, index) => [id, index]));
+    const preferred = [...ranked].sort((a, b) => (rank.get(a.mon.id) ?? Infinity) - (rank.get(b.mon.id) ?? Infinity) || b.score - a.score);
+    const draft = (list, skip = null) => {
+      const lineup = [];
+      for (const entry of list) {
+        if (lineup.length === 6) break;
+        if (entry !== skip && lineup.every(({ mon }) => fixedTeamCompatible(mon, entry.mon, plan.eliteTier))) lineup.push(entry);
+      }
+      return lineup;
+    };
+    const best = draft(preferred);
+    if (!best.length) return null;
+    const matchup = draft(ranked);
+    const signature = (lineup) => JSON.stringify(lineup.map(({ mon }) => String(mon.uid)));
+    const alternatives = best.map((entry) => draft(preferred, entry)).filter((lineup) => lineup.length === best.length);
+    const reordered = best.slice(1).map((lead, index) => [lead, ...best.slice(0, index + 1), ...best.slice(index + 2)]);
+    const next = [best, matchup, ...alternatives, ...reordered].find((lineup) => !excluded.has(signature(lineup)));
+    if (!next) return null;
+    return {
+      mons: next.map(({ mon }) => mon),
+      details: next.map(({ mon, score, reason }) => ({ uid: mon.uid, id: mon.id, name: species(mon.id).n, score, reason })),
+      signature: signature(next),
+      usesPopularity: next !== matchup && next.some(({ mon }) => rank.has(mon.id)),
+    };
+  }
+
+  async function findFixedTeamCard(mon, search, grid) {
+    const selector = `#evt-pick.open #evt-pc [data-uid="${CSS.escape(String(mon.uid))}"]`;
+    const get = () => document.querySelector(selector);
+    async function query(value) {
+      search.value = value;
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+      await sleep(100);
+    }
+    await query(species(mon.id).n.replace(/\s*\(.+\)$/, ""));
+    let card = get();
+    if (!card) {
+      // 搜索文本受游戏语言影响，备用路径始终按个体 UID 识别原生虚拟电脑列表。
+      await query("");
+      const stride = Math.max(100, Math.floor(grid.clientHeight * 0.8));
+      for (let top = 0; ; top += stride) {
+        grid.scrollTop = top;
+        await sleep(90);
+        card = get();
+        if (card || grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 2 || grid.scrollTop < top) break;
+      }
+    }
+    if (card) {
+      card.scrollIntoView({ block: "nearest", behavior: "instant" });
+      await sleep(90);
+    }
+    return get();
+  }
+
+  async function configureFixedTeam(plan, team, { allowed, mayEdit }) {
     const id = plan.speciesId;
-    const freshTarget = runtime.target !== `special:${id}`;
-    if (freshTarget) {
+    const desired = team.mons.map(({ uid }) => String(uid));
+    const savedUids = () => fixedTeamUids(readSave(), id);
+    if (!allowed() || nativeFixedEditor()) return false;
+    if (JSON.stringify(savedUids()) === team.signature) return true;
+    const editor = fixedEditorButton(plan);
+    if (!editor) return false;
+    const editing = { taken: false };
+    runtime.fixedAutoEditor = editing;
+    const opened = await pacedClick(editor, `${plan.zone}专属队伍`, undefined,
+      () => allowed() && !nativeFixedEditor() && fixedEditorButton(plan) === editor);
+    const dialog = opened && nativeFixedEditor();
+    if (!dialog) {
+      runtime.fixedAutoEditor = null;
+      return false;
+    }
+    const grid = dialog.querySelector("#evt-pc");
+    const search = dialog.querySelector("#evt-search");
+    const slotOf = (uid) => dialog.querySelector(`#evt-team [data-uid="${CSS.escape(uid)}"]`);
+    const cancelled = () => editing.taken || !mayEdit() || !dialog.classList.contains("open");
+    try {
+      if (!grid || !search || !dialog.querySelector("[data-evt-close]")) throw new Error("专属队伍界面结构缺失");
+      for (const uid of savedUids().filter((member) => !desired.includes(member))) {
+        if (cancelled()) return;
+        await dragPokemon(slotOf(uid), grid, "移除旧专属队员", () => !cancelled());
+        if (cancelled()) return false;
+        await waitFor(() => !savedUids().includes(uid), { label: "旧专属队员移除" });
+      }
+      for (const mon of team.mons) {
+        if (cancelled()) return;
+        const uid = String(mon.uid);
+        if (savedUids().includes(uid)) continue;
+        const card = await findFixedTeamCard(mon, search, grid);
+        if (cancelled()) return false;
+        if (!card) throw new Error(`游戏专属队伍中找不到 ${species(mon.id)?.n || mon.id}`);
+        await dragPokemon(card, dialog.querySelector("#evt-team .slot.empty"), "添加专属队员", () => !cancelled());
+        if (cancelled()) return false;
+        await waitFor(() => savedUids().includes(uid), { label: "专属队员加入" });
+      }
+      for (const [index, uid] of desired.entries()) {
+        if (cancelled()) return;
+        if (savedUids()[index] === uid) continue;
+        await dragPokemon(slotOf(uid), dialog.querySelector(`#evt-team .slot[data-slot="${index}"]`), "调整专属队员出场顺序", () => !cancelled());
+        if (cancelled()) return false;
+        await waitFor(() => savedUids()[index] === uid, { label: "专属队伍顺序" });
+      }
+      if (cancelled()) return false;
+      if (JSON.stringify(savedUids()) !== team.signature) throw new Error("游戏保存的专属队伍与推荐阵容不一致");
+      return true;
+    } finally {
+      // 原生编辑器每次拖动会重绘标题和关闭按钮，必须在此时重新取元素。
+      runtime.fixedAutoEditor = null;
+      if (!editing.taken && dialog.classList.contains("open")) {
+        const close = dialog.querySelector("[data-evt-close]");
+        if (close) {
+          await pacedClick(close, "关闭专属队伍编辑器");
+          await waitFor(() => !document.querySelector("#evt-pick.open"), { label: "专属队伍编辑器关闭" });
+        }
+      }
+    }
+  }
+
+  function fixedTeamCompatible(a, b, elite) {
+    const legendary = (mon) => species(mon.id)?.g || species(mon.id)?.m;
+    return teamIdentity(a) !== teamIdentity(b)
+      && !SPECIAL_TEAM_APART.get(Number(a.id))?.includes(Number(b.id))
+      && !SPECIAL_TEAM_APART.get(Number(b.id))?.includes(Number(a.id))
+      && !(elite && legendary(a) && legendary(b));
+  }
+
+  function fixedSelectedUids(save, plan) {
+    const legal = new Map((save.mons || []).filter((mon) => !save.link
+      || (pokemonHomeRegion(mon) === save.link.to) === (plan.region === save.link.to)).map((mon) => [String(mon.uid), mon]));
+    const dedicated = fixedTeamUids(save, plan.speciesId);
+    const uids = dedicated.length ? dedicated : (save.team || []).map(String).filter((uid) => legal.has(uid));
+    if (!plan.eliteTier) return uids;
+    const result = [];
+    for (const uid of uids) {
+      const mon = legal.get(uid);
+      if (mon && result.every((other) => fixedTeamCompatible(mon, legal.get(other), true))) result.push(uid);
+    }
+    return result;
+  }
+
+  function fixedTeamSignature(save, plan) {
+    return JSON.stringify(fixedSelectedUids(save, plan));
+  }
+
+  function fixedTeamFighting(save, signature) {
+    const uids = (save.road || []).map(String);
+    return !uids.length || JSON.stringify(uids) === signature;
+  }
+
+  function fixedEditorButton(plan) {
+    const tier = plan.eliteTier ? `[data-lz-tier="${plan.eliteTier}"]` : ":not([data-lz-tier])";
+    return document.querySelector(`#map-root [data-lz-team="${plan.speciesId}"]${tier}`);
+  }
+
+  async function openFixedTeamLocation(plan, allowed) {
+    if (!allowed()) return null;
+    await openChapterMap();
+    const region = document.querySelector(`#map-root .rg.open[data-rg="${plan.region}"]`);
+    if (!region || !allowed()) return null;
+    await pacedClick(region, `${t(plan.region)}地图标签`, undefined, allowed);
+    const row = document.querySelector(`#map-root .mp-row[data-ch="Z${plan.speciesId}"]`);
+    if (!row || !allowed()) return null;
+    await pacedClick(row, `${plan.zone}地图条目`, undefined, allowed);
+    const tab = document.querySelector('#map-root [data-lz-view="zone"]:not(.on)');
+    if (tab && allowed()) await pacedClick(tab, `${plan.zone}区域页`, undefined, allowed);
+    return allowed() ? fixedEditorButton(plan) : null;
+  }
+
+  function fixedManualPlan(save) {
+    const active = save?.adv?.zone;
+    const zone = !active?.riddle && DATA.specialZones.find((item) => item.id === Number(active?.id));
+    if (zone) return { speciesId: zone.id, region: zone.region, zone: zone.zone, eliteTier: active.elite || null };
+    const planned = runtime.targetPlan;
+    return planned?.special || planned?.eliteTier ? planned : null;
+  }
+
+  function nativeFixedEditor() {
+    return document.querySelector("#evt-pick.open");
+  }
+
+  async function requestManualFixedTeam() {
+    if (runtime.manualFixedTeam || nativeFixedEditor()) return;
+    const save = readSave();
+    const plan = fixedManualPlan(save);
+    if (!plan) return;
+    const request = { plan, opened: false, returnToBattle: Number(save.adv.zone?.id) === plan.speciesId };
+    runtime.manualFixedTeam = request;
+    const allowed = () => runtime.manualFixedTeam === request;
+    renderStatus();
+    try {
+      await waitFor(() => !runtime.busy || !allowed(), { timeout: 15_000, label: "脚本释放配队操作" });
+      if (!allowed()) return;
+      const editor = await openFixedTeamLocation(plan, allowed);
+      if (!editor || !allowed()) throw new Error("游戏地图当前未显示该地点的专属队伍");
+      const panel = document.getElementById(PANEL_ID);
+      const toggle = panel?.querySelector(".pca-native-bar");
+      if (toggle && !settings.collapsed) await pacedClick(toggle, "折叠助手", undefined, allowed);
+      await pacedClick(editor, "打开手动专属队伍", undefined, () => allowed() && !nativeFixedEditor());
+      if (allowed()) request.opened = true;
+    } catch (error) {
+      if (allowed()) {
+        runtime.manualFixedTeam = null;
+        runtime.teamStatus = `打开手动阵容失败：${error.message}`;
+        log(runtime.teamStatus, "error");
+        renderStatus();
+      }
+    }
+  }
+
+  async function finishManualFixedTeam() {
+    const request = runtime.manualFixedTeam;
+    if (!request?.opened || request.finishing || nativeFixedEditor()) return;
+    request.finishing = true;
+    const save = readSave();
+    const { plan } = request;
+    try {
+      if (request.returnToBattle && Number(save.adv.zone?.id) === plan.speciesId
+        && document.querySelector("#screen-map.active")) await openScreen("adventure");
+    } finally {
+      if (runtime.manualFixedTeam === request) runtime.manualFixedTeam = null;
+    }
+  }
+
+  function readFixedPopularity() {
+    const ids = Array.from(document.querySelectorAll("#map-root .lzb-pop .lzb-pk .sprbox img[data-id]"),
+      (image) => Number(image.dataset.id));
+    return [...new Set(ids.filter((id) => species(id)))];
+  }
+
+  async function automaticFixedTeam(plan, foe, excluded, previousSignature, isActive) {
+    const mode = runtime.mode;
+    const mayEdit = () => !runtime.manualFixedTeam && !runtime.paused && mode !== "idle"
+      && runtime.mode === mode && isActive(readSave());
+    const allowed = () => mayEdit() && fixedTeamSignature(readSave(), plan) === previousSignature;
+    if (excluded.size >= SPECIAL_MAX_LINEUPS || !fixedTeamCandidates(readSave(), plan.region).length) return { exhausted: true };
+    const editor = await openFixedTeamLocation(plan, () => allowed() && !nativeFixedEditor());
+    if (!editor || !allowed() || nativeFixedEditor()) return { interrupted: true };
+    // 榜单由地图异步绘制。短暂等候，空榜时使用常规对位评分。
+    let popular = readFixedPopularity();
+    for (let attempt = 0; !popular.length && allowed() && attempt < 8; attempt++) {
+      await sleep(250);
+      popular = readFixedPopularity();
+    }
+    if (!allowed() || nativeFixedEditor()) return { interrupted: true };
+    const team = recommendFixedTeam(readSave(), plan, foe, excluded, popular);
+    if (!team) return { exhausted: true };
+    return await configureFixedTeam(plan, team, { allowed, mayEdit }) ? { team } : { interrupted: true };
+  }
+
+  function showFixedTeam(save, plan, source, team = null) {
+    if (team) runtime.teamPlan = team;
+    const names = fixedSelectedUids(save, plan).map((uid) => {
+      const mon = save.mons.find((item) => String(item.uid) === uid);
+      return species(mon?.id)?.n || uid;
+    });
+    runtime.teamStatus = `${source} · ${names.join("、") || "请手动选择出阵成员"}`;
+  }
+
+  function fixedFightState(plan, foe, save, tried = new Set()) {
+    const signature = fixedTeamSignature(save, plan);
+    if (signature !== "[]") tried.add(signature);
+    return {
+      id: plan.speciesId, foe, signature, tried, exhausted: false, losses: 0,
+      tries: Number(save.legTries?.[foe] || 0), bossBattle: null,
+      node: save.adv.node, counted: false,
+    };
+  }
+
+  function fixedBattleStamp(save, state) {
+    const battle = save.adv.battle;
+    if (battle?.kind !== "static" || Number(battle.zone) !== state.id) return null;
+    const foe = battle.enemies?.find((mon) => Number(mon.id) === state.foe);
+    return foe ? String(foe.uid ?? save.stats?.battles ?? "boss") : null;
+  }
+
+  function observeFixedFight(save, plan = runtime.targetPlan) {
+    if (!plan?.special || !insideNormalSpecial(save, plan.speciesId) || nativeFixedEditor() || runtime.manualFixedTeam) return null;
+    const id = plan.speciesId;
+    const foe = Number(save.adv.zone.foe ?? id);
+    const signature = fixedTeamSignature(save, plan);
+    let state = runtime.specialFight;
+    if (state?.id !== id || state.foe !== foe || state.signature !== signature) {
+      const origin = state?.id === id && state.signature !== signature ? "手动阵容" : "当前出阵阵容";
+      state = runtime.specialFight = fixedFightState(plan, foe, save);
+      runtime.teamPlan = null;
+      showFixedTeam(save, plan, origin);
+    }
+    const tries = Number(save.legTries?.[foe] || 0);
+    const stamp = fixedBattleStamp(save, state);
+    const bossIndex = (save.adv.nodes || []).findIndex((node) => node.type === "static" && Number(node.id) === foe);
+    if (!fixedTeamFighting(save, signature)) {
+      // 手动配置已保存但游戏仍在打上一阵容的这一轮。其结果不计入新阵容。
+      Object.assign(state, { tries, bossBattle: null, node: save.adv.node, counted: true });
+      return state;
+    }
+    const passedBoss = bossIndex >= 0 && save.adv.node > bossIndex && state.node <= bossIndex;
+    const resolved = state.bossBattle && stamp !== state.bossBattle
+      && (stamp || (bossIndex >= 0 && save.adv.node !== bossIndex));
+    if (tries > state.tries) {
+      runtime.attempts += tries - state.tries;
+      state.losses = 0;
+      state.counted = true;
+    } else if (passedBoss || resolved) {
+      noteFixedLoss(state);
+    }
+    if ((stamp && stamp !== state.bossBattle) || (bossIndex >= 0 && save.adv.node <= bossIndex && state.node > bossIndex)) {
+      state.counted = false;
+    }
+    Object.assign(state, { tries, bossBattle: stamp, node: save.adv.node });
+    return state;
+  }
+
+  function noteFixedLoss(state) {
+    if (!state.counted) {
+      state.losses += 1;
+      state.counted = true;
+    }
+  }
+
+  function observeFixedFightLog() {
+    const battleLog = document.querySelector("#battle-log");
+    if (!battleLog) return;
+    const observer = new MutationObserver(() => {
+      const plan = runtime.targetPlan;
+      if (!plan?.special || runtime.busy || runtime.mode === "idle" || runtime.paused
+        || !document.querySelector("#screen-adventure.active")) return;
+      const save = readSave();
+      const state = observeFixedFight(save, plan);
+      if (!state || !fixedTeamFighting(save, state.signature)) return;
+      const bossIndex = (save.adv.nodes || []).findIndex((node) => node.type === "static" && Number(node.id) === state.foe);
+      if (bossIndex < 0 || save.adv.node <= bossIndex) return;
+      const timeline = document.querySelector("#timeline");
+      const final = [...(timeline?.querySelectorAll(".tl-node") || [])].at(-1);
+      const fled = /^(?:野生的.+逃走了[！!]|Wild .+ fled!|.+ sauvage s['’]enfuit\s*!)[\s]*$/iu;
+      if (String(timeline?.dataset.key).split("|")[1] === `Z${state.id}`
+        && final?.classList.contains("current") && fled.test(battleLog.textContent.trim())) noteFixedLoss(state);
+    });
+    observer.observe(battleLog, { childList: true, subtree: true, characterData: true });
+  }
+
+  async function specialCollectionTick(save, plan) {
+    if (runtime.manualFixedTeam || nativeFixedEditor()) return;
+    const id = plan.speciesId;
+    if (runtime.target !== `special:${id}`) {
       runtime.target = `special:${id}`;
       runtime.targetPlan = plan;
       runtime.waitingPlan = null;
       runtime.userTeamOverride = false;
       runtime.attempts = 0;
-      runtime.lastSpecialTries = Number(save.legTries?.[save.adv.zone?.foe ?? id] || 0);
+      if (runtime.specialFight?.id !== id) runtime.specialFight = null;
     }
-    const foe = insideNormalSpecial(save, id) ? Number(save.adv.zone.foe ?? id) : id;
-    const tries = Number(save.legTries?.[foe] || 0);
-    if (!freshTarget && tries > runtime.lastSpecialTries) {
-      runtime.attempts += tries - runtime.lastSpecialTries;
-    }
-    runtime.lastSpecialTries = tries;
-    if (insideNormalSpecial(save, id)) return;
-
-    await exclusive("进入特殊捕获地点", async () => {
-      // 只在地区不同的时候先切章节。特殊地点本身不要求玩家在关联章节。
-      if (currentRegion(readSave()) !== plan.region) await switchChapter(plan.chapter);
-      const local = readSave();
-      const team = recommendRoamingTeam(local, id);
-      await applyRecommendedTeam(team, species(id)?.n || String(id));
-      const result = await enterSpecialZone(plan);
-      if (result.entered) {
-        const entered = readSave();
-        runtime.lastSpecialTries = Number(entered.legTries?.[entered.adv.zone?.foe ?? id] || 0);
+    const state = observeFixedFight(save, plan);
+    if (save.adv.battle || save.adv.pending || (state && (state.exhausted || state.losses < SPECIAL_ROTATE_AFTER))) return;
+    await exclusive(state ? "固定神兽三连败换队" : "进入神兽地点", async () => {
+      const fresh = readSave();
+      if (runtime.manualFixedTeam || runtime.paused || runtime.mode === "idle" || nativeFixedEditor()
+        || fresh.adv.battle || fresh.adv.pending) return;
+      if (state) {
+        if (observeFixedFight(fresh, plan) !== state || state.losses < SPECIAL_ROTATE_AFTER) return;
+        const isActive = (current) => runtime.specialFight === state && insideNormalSpecial(current, id)
+          && Number(current.adv.zone.foe ?? id) === state.foe;
+        const result = await automaticFixedTeam(plan, state.foe, state.tried, state.signature, isActive);
+        if (result.team) {
+          const latest = readSave();
+          const next = runtime.specialFight = fixedFightState(plan, state.foe, latest, state.tried);
+          next.counted = !fixedTeamFighting(latest, next.signature);
+          showFixedTeam(latest, plan, result.team.usesPopularity ? "已按最常选用换队" : "已按对位换队", result.team);
+          log(runtime.teamStatus);
+        } else if (result.exhausted) {
+          state.exhausted = true;
+          showFixedTeam(readSave(), plan, "无新的合格阵容，可手动换队");
+        }
+        if (!runtime.manualFixedTeam && !nativeFixedEditor() && !runtime.paused && runtime.mode !== "idle"
+          && document.querySelector("#screen-map.active")) await openScreen("adventure");
         return;
       }
-      // 以游戏按钮为最终判据。临时关闭时跳过，稍后重检，其余目标继续运行。
+
+      // 初次进入沿用游戏中你已经设置的专属队伍，留空时由原生游戏使用冒险队伍。
+      const result = await enterSpecialZone(plan);
+      if (result.cancelled) return;
+      if (result.entered) {
+        observeFixedFight(readSave(), plan);
+        return;
+      }
       runtime.specialEntryBlocks.set(id, { reason: result.reason, until: Date.now() + 60_000 });
       clearCollectionTarget();
       runtime.collectionQueueSignature = "";
       runtime.teamStatus = `${plan.zone} · ${result.reason}`;
       log(runtime.teamStatus);
-      await openScreen("adventure");
+      if (!runtime.manualFixedTeam && !nativeFixedEditor()) await openScreen("adventure");
     });
+  }
+
+  const ROAD_ITEM_NAMES = {
+    "adamant-orb": ["金刚宝珠", "Adamant Orb"], "lustrous-orb": ["白玉宝珠", "Lustrous Orb"],
+    "griseous-orb": ["白金宝珠", "Griseous Orb"], gracidea: ["葛拉西蒂亚花", "Gracidea"],
+    "light-stone": ["光明石", "Light Stone"], "dark-stone": ["黑暗石", "Dark Stone"],
+    "burn-drive": ["火焰卡带", "Burn Drive"], "chill-drive": ["冰冻卡带", "Chill Drive"],
+    "shock-drive": ["闪电卡带", "Shock Drive"], "douse-drive": ["水流卡带", "Douse Drive"],
+    "reveal-glass": ["现形镜", "Reveal Glass"],
+  };
+  const ROAD_ITEM_SOURCES = DATA.roadItemSources;
+
+  function roadItemName(key) {
+    return ROAD_ITEM_NAMES[key]?.[language() === "en" ? 1 : 0] || key;
+  }
+
+  function conditionLeaves(condition) {
+    if (!condition) return [];
+    return condition.kind === "all" ? (condition.list || []).flatMap(conditionLeaves) : [condition];
+  }
+
+  function specialItemHeld(save, key) {
+    return Number(save.items?.[key] || 0) + Number(save.link?.stash?.items?.[key] || 0) > 0;
+  }
+
+  function orbFarmNeeds(save) {
+    const needed = new Set();
+    for (const zone of DATA.specialZones) {
+      if (!regionInCollectionScope(save, zone.region) || isSpecialComplete(save, zone.id)) continue;
+      for (const condition of conditionLeaves(zone.condition)) {
+        const key = condition.item;
+        if (condition.kind === "item" && ROAD_ITEM_NAMES[key] && !specialItemHeld(save, key)
+          && !save.adv.gifts?.[key]) needed.add(key);
+      }
+    }
+    return [...needed].map((key) => ({ key }));
+  }
+
+  function inOrbChapter(save, index) {
+    const adv = save.adv;
+    return adv.chapter === index && !adv.zone && !adv.event && !adv.league && !adv.tower;
+  }
+
+  function orbItemNodes(save, plan) {
+    if (!inOrbChapter(save, plan.chapter)) return [];
+    // 游戏在道具节点结算时才读取 loot；有 find 的糖果或固定奖励不会走该判定。
+    const progress = Number(save.adv.node) || 0;
+    return (save.adv.nodes || []).flatMap((node, index) => (
+      index >= progress && (node.ch == null || node.ch === plan.chapter)
+      && (plan.trainerGoal ? node.type === "trainer" : node.type === "item" && !node.find
+        && plan.orbs.some(({ key }) => node.loot?.[key])) ? [index] : []
+    ));
+  }
+
+  function orbFarmPlan(save) {
+    const missing = new Set(orbFarmNeeds(save).map(({ key }) => key));
+    if (!missing.size) return null;
+    const grouped = new Map();
+    for (const source of ROAD_ITEM_SOURCES) {
+      if (!missing.has(source.key) || source.chapter > save.adv.unlocked) continue;
+      const current = chapter(source.chapter);
+      if (!current || !regionInCollectionScope(save, current.region)
+        || (source.badge && !save.adv.badges?.includes(source.badge))
+        || !source.owns.every((id) => ownsSpecialPrerequisite(save, id))) continue;
+      const plan = grouped.get(source.chapter) || { orbFarm: true, chapter: source.chapter,
+        chapterName: current.name, region: current.region, orbs: [], routeCost: 0 };
+      if (plan.orbs.some(({ key }) => key === source.key)) continue;
+      plan.orbs.push({ key: source.key });
+      plan.routeCost = Math.max(plan.routeCost, source.step);
+      grouped.set(source.chapter, plan);
+    }
+    const plans = [...grouped.values()];
+    // 利用本轮节点，然后选覆盖道具多、所需路段短的章节。
+    plans.sort((a, b) => Number(orbItemNodes(save, b).length > 0) - Number(orbItemNodes(save, a).length > 0)
+      || b.orbs.length - a.orbs.length || a.routeCost - b.routeCost);
+    return plans[0] || null;
+  }
+
+  function orbFarmLabel(plan) {
+    if (plan.trainerGoal) return language() === "en" ? "Trainer victories" : "刷地区训练家胜场";
+    const onlyOrbs = plan.orbs.every(({ key }) => key.endsWith("-orb"));
+    const action = language() === "en" ? (onlyOrbs ? "Farming orbs" : "Farming prerequisite items")
+      : (onlyOrbs ? "刷取宝珠" : "刷取神兽前置道具");
+    return `${action} · ${plan.orbs.map(({ key }) => roadItemName(key)).join("、")}`;
+  }
+
+  function canContinueOrbFarm(save, plan) {
+    return !runtime.paused && ["roaming", "combined"].includes(runtime.mode)
+      && !save.adv.battle && !save.adv.pending
+      && regionInCollectionScope(save, plan.region)
+      && (plan.trainerGoal ? Number(save.stats?.byReg?.[plan.region]?.trainers || 0) < plan.trainerGoal
+        : orbFarmPlan(save)?.orbs.some(({ key }) => plan.orbs.some((orb) => orb.key === key)));
+  }
+
+  async function orbFarmTick(save, plan) {
+    if (!canContinueOrbFarm(save, plan)) return;
+    const key = plan.trainerGoal ? `trainers:${plan.chapter}` : `orb:${plan.chapter}`;
+    const changingRoute = runtime.target !== key;
+    runtime.targetPlan = plan;
+    runtime.waitingPlan = null;
+    if (changingRoute) {
+      runtime.target = key;
+      runtime.teamPlan = null;
+      runtime.userTeamOverride = false;
+      runtime.attempts = 0;
+      log(`${orbFarmLabel(plan)} · ${plan.chapterName}`);
+    }
+
+    if (!inOrbChapter(save, plan.chapter)) {
+      await exclusive("前往神兽前置路线", () => switchChapter(plan.chapter));
+      return;
+    }
+    if (!runtime.teamPlan && !settings.lockTeam5) {
+      await exclusive("配置神兽前置路线队伍", async () => {
+        const current = readSave();
+        if (!canContinueOrbFarm(current, plan) || !inOrbChapter(current, plan.chapter)) return;
+        const pool = settings.candidatePool.enabled ? preferredTeamCandidates(current) : null;
+        const team = recommendTeam(current, targetEnemiesForChapter(plan.chapter), {
+          candidateOverride: pool,
+          targetLevel: chapter(plan.chapter)?.ace,
+          levelWeight: COLLECTION_LEVEL_WEIGHT,
+          preferredLevel: ROAMING_PREFERRED_LEVEL,
+        });
+        if (!team.mons.length) {
+          diagnostic("神兽前置路线", new Error("当前没有符合候选条件的出战队员"), {
+            suggestion: "请检查该地区候选池和最低有效 BST，或锁定第五队并手动安排出战后重启。",
+          });
+          return;
+        }
+        await applyRecommendedTeam(team, plan.chapterName);
+        if (canContinueOrbFarm(readSave(), plan)) await openScreen("adventure");
+      });
+      return;
+    }
+
+    if (orbItemNodes(save, plan).length) return;
+    await exclusive("重开神兽前置路线", async () => {
+      const latest = readSave();
+      if (!canContinueOrbFarm(latest, plan) || !inOrbChapter(latest, plan.chapter) || orbItemNodes(latest, plan).length) return;
+      const mayRestart = (fresh) => canContinueOrbFarm(fresh, plan) && inOrbChapter(fresh, plan.chapter) && !orbItemNodes(fresh, plan).length;
+      const restarted = await switchChapter(plan.chapter, { restart: true, settle: false, allowRestart: mayRestart });
+      if (restarted !== null) {
+        runtime.attempts += 1;
+        return;
+      }
+      const waiting = readSave();
+      if (!mayRestart(waiting)) return;
+      // 进度为0时游戏不会出现「重新开始」。用最近的普通章节中转，触发原生生成。
+      const transit = normalTransitChapter(waiting, plan);
+      if (!transit) throw new Error("没有可用的普通中转章节");
+      await switchChapter(transit.index, { settle: false });
+      const fresh = readSave();
+      if (!canContinueOrbFarm(fresh, plan)) return;
+      await switchChapter(plan.chapter, { settle: false });
+      runtime.attempts += 1;
+    });
+  }
+
+  function roadDexConditionIds(condition, special) {
+    const { kind } = condition;
+    if (!["dex", "type", "types", "count"].includes(kind)) return [];
+    const range = kind === "types" ? condition.dex : special.dex;
+    if (!range) return [];
+    return Object.keys(DATA.species).map(Number).filter((id) => {
+      const meta = species(id);
+      if (id < range[0] || id > range[1] || meta?.m) return false;
+      if (kind === "count") return !meta.g;
+      if (kind === "type") return !meta.g && meta.t?.includes(condition.type);
+      if (kind === "types") return id !== special.id && !(meta.g && id >= special.dex[0])
+        && meta.t?.some((type) => condition.types.includes(type));
+      return true;
+    });
+  }
+
+  function roadPrerequisiteZones(save) {
+    return specialChoiceIds().flatMap((id) => {
+      const zone = DATA.specialZones.find((item) => item.id === id);
+      return zone && !isSpecialComplete(save, id) && regionInCollectionScope(save, zone.region)
+        && DATA.chapters.some((item) => item.region === zone.region && item.index <= save.adv.unlocked)
+        && (!zone.badge || save.adv.badges?.includes(zone.badge)) ? [zone] : [];
+    });
+  }
+
+  function roadDexPrerequisitePlan(save, zones) {
+    if (save.adv.capture?.on === false) return null;
+    const wanted = new Map();
+    for (const zone of zones) {
+      for (const condition of conditionLeaves(zone.condition)) {
+        if (!["owns", "dex", "type", "types", "count"].includes(condition.kind)
+          || specialConditionStatus(save, condition, zone).met) continue;
+        const ids = condition.kind === "owns" ? condition.ids.filter((id) => !ownsSpecialPrerequisite(save, id))
+          : roadDexConditionIds(condition, zone);
+        for (const id of ids) if (!wanted.has(id) && !isCaught(save, id)) wanted.set(id, zone.id);
+      }
+    }
+    if (!wanted.size) return null;
+    const current = runtime.targetPlan;
+    if (current?.prerequisiteFor && wanted.has(current.speciesId)) {
+      const stillAvailable = plansForSpecies(save, current.speciesId).find((item) => item.chapter === current.chapter && item.zone === current.zone);
+      if (stillAvailable) return { ...stillAvailable, prerequisiteFor: wanted.get(current.speciesId) };
+    }
+    const next = refreshCollectionQueue(save).find((plan) => !plan.special && wanted.has(plan.speciesId));
+    return next ? { ...next, prerequisiteFor: wanted.get(next.speciesId) } : null;
+  }
+
+  function trainerPrerequisitePlan(save, zones) {
+    for (const zone of zones) {
+      const condition = conditionLeaves(zone.condition).find((item) => item.kind === "tally" && item.field === "trainers"
+        && !specialConditionStatus(save, item, zone).met);
+      if (!condition) continue;
+      const left = condition.need - Number(save.stats?.byReg?.[zone.region]?.trainers || 0);
+      const routes = DATA.chapters.filter((item) => item.region === zone.region && !item.league && item.index <= save.adv.unlocked)
+        .map((item) => {
+          let cost = 0, trainers = 0;
+          for (const step of item.steps || []) {
+            if (step.kind === "gym" || trainers >= left) break;
+            if (step.kind === "route") {
+              trainers += step.trainers || 0;
+              cost += (step.trainers || 0) * 3 + (step.wild || 0);
+            } else if (step.kind === "trainer") { trainers += 1; cost += 3; }
+            else cost += 0.25;
+          }
+          return { orbFarm: true, chapter: item.index, chapterName: item.name, region: zone.region,
+            trainerGoal: condition.need, score: trainers / Math.max(1, cost), targetId: zone.id };
+        }).filter((item) => item.score > 0);
+      routes.sort((a, b) => Number(orbItemNodes(save, b).length > 0) - Number(orbItemNodes(save, a).length > 0)
+        || b.score - a.score || a.chapter - b.chapter);
+      if (routes[0]) return routes[0];
+    }
+    return null;
+  }
+
+  function legendaryStoryPrerequisitePlan(save) {
+    if (!settings.autoPushForCollection) return null;
+    for (const id of specialChoiceIds()) {
+      const zone = DATA.specialZones.find((item) => item.id === id);
+      if (!zone || isSpecialComplete(save, id) || !regionInCollectionScope(save, zone.region)) continue;
+      if (!specialNeedsStoryUnlock(save, zone)) continue;
+      if (!settings.lockTeam5 && settings.candidatePool.enabled && currentRegion(save) === zone.region
+        && !preferredTeamCandidates(save).length) continue;
+      const frontier = DATA.chapters.findLast((chapter) => chapter.region === zone.region && chapter.index <= save.adv.unlocked);
+      if (!frontier) continue;
+      return { unlockForCollection: true, legendaryStory: true, region: zone.region, chapter: frontier.index,
+        chapterName: frontier.name, targetId: id, unlockedAtStart: save.adv.unlocked };
+    }
+    return null;
+  }
+
+  // 碑文答案和队伍限制来自游戏原生的 LegendZones 表。
+  const INSCRIPTION_RULES = {
+    regirock: { type: "fighting" },
+    regice: { wait: true },
+    registeel: { type: "flying" },
+    regigigas: { team: [377, 378, 379] },
+    keldeo: { team: [638, 639, 640] },
+    landorus: { team: [641, 642] },
+  };
+  const ELITE_UNLOCK_BADGE = "Forêt";
+
+  function legendaryName(id) {
+    return species(id)?.n || String(id);
+  }
+
+  function inscriptionCandidates(save, rule) {
+    const ready = availableTeamCandidates(save);
+    const current = ready.filter((mon) => save.team?.includes(mon.uid));
+    const pick = (list) => rule.team ? rule.team.map((id) => list.find((mon) => mon.id === id)).filter(Boolean)
+      : list.filter((mon) => species(mon.id)?.t.includes(rule.type)).slice(0, 1);
+    const needed = rule.team?.length || 1;
+    const selected = pick(current);
+    if (selected.length === needed) return { answer: selected[0] };
+    if (settings.lockTeam5 || runtime.userTeamOverride) return { reason: language() === "en"
+      ? "Add the required Pokémon to the active team" : "将碑文要求的宝可梦加入当前出战队伍" };
+    const choices = settings.candidatePool.enabled ? preferredTeamCandidates(save) : ready;
+    const required = pick(choices);
+    if (required.length < needed) return { reason: language() === "en"
+      ? "Required Pokémon unavailable in the eligible candidate pool" : "当前可出战候选池缺少碑文要求的成员" };
+    const lineup = [...required];
+    for (const mon of [...current, ...choices]) {
+      if (lineup.length === 6) break;
+      if (choices.includes(mon) && !lineup.some((member) => teamIdentity(member) === teamIdentity(mon))) lineup.push(mon);
+    }
+    return { answer: required[0], lineup };
+  }
+
+  function inscriptionStatus(save, key) {
+    const rule = INSCRIPTION_RULES[key];
+    if (!rule) return t("specialConditionLocked");
+    const en = language() === "en";
+    if (rule.wait) return en ? "Inscription: wait at the wall" : "碑文：原地等待两分钟";
+    const missing = (rule.team || []).filter((id) => !ownsSpecialPrerequisite(save, id));
+    const task = rule.team ? (en ? "Inscription team: " : "碑文出战队伍：") + rule.team.map(legendaryName).join("、")
+      : rule.type === "fighting" ? (en ? "Inscription: show a Fighting Pokémon" : "碑文：展示格斗属性宝可梦")
+        : (en ? "Inscription: show a Flying Pokémon" : "碑文：展示飞行属性宝可梦");
+    if (missing.length) return task + (en ? " (missing " : "（缺少") + missing.map(legendaryName).join("、") + (en ? ")" : "）");
+    const option = currentRegion(save) === DATA.specialZones.find((zone) => zone.condition?.key === key)?.region
+      ? inscriptionCandidates(save, rule) : {};
+    return option.reason ? task + "；" + option.reason : task;
+  }
+
+  function elitePrerequisiteStatus(save, rule) {
+    const mon = legendaryName(rule.zone);
+    const en = language() === "en";
+    const remaining = [en ? `Defeat ${mon} at Elite ${rule.tier}` : `击败${mon}精英第 ${rule.tier} 阶`];
+    if (!ownsSpecialPrerequisite(save, rule.zone)) remaining.push(en ? `Own ${mon}` : `需要拥有${mon}`);
+    if (!save.adv.badges?.includes(ELITE_UNLOCK_BADGE)) remaining.push(en
+      ? "Unlock the Underground with the Forest Badge" : "取得森林徽章以开放地下通道");
+    const base = DATA.specialZones.find((zone) => zone.id === rule.zone);
+    if (base) remaining.push(specialTimingStatus(save, base));
+    return remaining.filter(Boolean).join("；");
+  }
+
+  function independentConditionPlan(save, zones) {
+    const en = language() === "en";
+    for (const zone of zones) {
+      for (const condition of conditionLeaves(zone.condition)) {
+        const rule = INSCRIPTION_RULES[condition.key];
+        const sealed = condition.kind === "door" && rule && !save.zoneDoors?.[condition.key]
+          && (rule.team || []).every((id) => ownsSpecialPrerequisite(save, id));
+        const elite = condition.kind === "elite" && save.adv.badges?.includes(ELITE_UNLOCK_BADGE)
+          && ownsSpecialPrerequisite(save, condition.zone)
+          && Number(save.elite?.[condition.zone]?.t || 0) < condition.tier;
+        if (!sealed && !elite) continue;
+        // Several forms also need their base species. It has its own place in the capture queue.
+        if (elite && conditionLeaves(zone.condition).some((leaf) => leaf.kind === "owns"
+          && !leaf.ids.every((id) => ownsSpecialPrerequisite(save, id)))) continue;
+        const base = elite ? DATA.specialZones.find((item) => item.id === condition.zone) : zone;
+        if (!base || specialTimingStatus(save, base) || !regionInCollectionScope(save, base.region)) continue;
+        const key = elite ? `elite:${base.id}:${Number(save.elite?.[base.id]?.t || 0) + 1}` : `door:${condition.key}`;
+        const chapter = DATA.chapters.find((item) => item.region === base.region && !item.league
+          && item.index === base.anchor && item.index <= save.adv.unlocked)
+          || DATA.chapters.findLast((item) => item.region === base.region && !item.league && item.index <= save.adv.unlocked);
+        if (!chapter || runtime.independentBlocks.get(key)?.until > Date.now()) continue;
+        if (sealed && !rule.wait && currentRegion(save) === base.region && inscriptionCandidates(save, rule).reason) continue;
+        const tier = elite ? Number(save.elite?.[base.id]?.t || 0) + 1 : null;
+        return { independent: key, condition, rule, region: base.region, speciesId: base.id, forId: zone.id,
+          zone: base.zone, chapter: chapter.index, level: 100, eliteTier: tier,
+          label: elite ? `${en ? "Elite" : "精英"} ${tier} · ${legendaryName(base.id)}`
+            : `${en ? "Inscription" : "解碑文"} · ${legendaryName(base.id)}` };
+      }
+    }
+    return null;
+  }
+
+  function independentRunning() {
+    return !runtime.paused && !runtime.error && ["roaming", "combined"].includes(runtime.mode);
+  }
+
+  function independentInside(save, plan) {
+    return Number(save.adv.zone?.id) === plan.speciesId && (plan.eliteTier
+      ? Number(save.adv.zone.elite) === plan.eliteTier : save.adv.zone.riddle === plan.condition.key);
+  }
+
+  function independentComplete(save, plan) {
+    return plan.eliteTier ? Number(save.elite?.[plan.speciesId]?.t || 0) >= plan.eliteTier
+      : Boolean(save.zoneDoors?.[plan.condition.key]);
+  }
+
+  function independentDefer(plan, reason) {
+    runtime.independentBlocks.set(plan.independent, { until: Date.now() + 180_000, reason });
+    log(`${plan.label} · ${reason}`);
+    runtime.independentRun = null;
+    if (runtime.targetPlan?.independent === plan.independent) clearCollectionTarget();
+  }
+
+  async function enterIndependentZone(plan, prepare, activate) {
+    await openChapterMap();
+    const regionTab = document.querySelector(`#map-root .rg.open[data-rg="${plan.region}"]`);
+    if (!regionTab || !independentRunning() || runtime.manualFixedTeam || nativeFixedEditor()) return false;
+    await pacedClick(regionTab, plan.label);
+    const row = document.querySelector(`#map-root .mp-row[data-ch="Z${plan.speciesId}"]`);
+    if (!row || (!plan.eliteTier && !row.classList.contains("lz-seal"))) return false;
+    await pacedClick(row, plan.label);
+    const zoneTab = document.querySelector('#map-root [data-lz-view="zone"]:not(.on)');
+    if (zoneTab) await pacedClick(zoneTab, plan.label);
+    const selector = `#map-root .mp-go[data-zone="${plan.speciesId}"]`
+      + (plan.eliteTier ? `[data-tier="${plan.eliteTier}"]` : ":not([data-tier])");
+    const ready = () => {
+      const button = document.querySelector(selector);
+      return button && !button.disabled ? button : null;
+    };
+    if (!ready() || !independentRunning()) return false;
+    if (prepare) await prepare();
+    const fresh = readSave();
+    const button = ready();
+    if (!button || !independentRunning() || runtime.manualFixedTeam || nativeFixedEditor() || fresh.adv.battle || fresh.adv.pending || independentComplete(fresh, plan)) return false;
+    activate();
+    await pacedClick(button, plan.label);
+    try {
+      await waitFor(() => independentInside(readSave(), plan) || independentComplete(readSave(), plan),
+        { timeout: 6000, label: plan.label });
+      return true;
+    } catch (error) {
+      if (error.message !== `等待${plan.label}超时`) throw error;
+      return false;
+    }
+  }
+
+  async function executeIndependentCondition(save, plan) {
+    runtime.target = plan.independent;
+    runtime.targetPlan = plan;
+    runtime.attempts = 0;
+    if (currentRegion(save) !== plan.region) {
+      await exclusive("前往独立条件地区", () => switchChapter(plan.chapter));
+      return;
+    }
+    const answer = plan.eliteTier || plan.rule.wait ? null : inscriptionCandidates(save, plan.rule);
+    if (answer?.reason) {
+      independentDefer(plan, answer.reason);
+      return;
+    }
+    await exclusive(plan.label, async () => {
+      if (answer?.lineup) {
+        await applyRecommendedTeam({ mons: answer.lineup, details: answer.lineup.map((mon) => ({ name: legendaryName(mon.id) })) }, plan.label);
+        const current = inscriptionCandidates(readSave(), plan.rule);
+        if (!independentRunning()) return;
+        if (!current.answer || current.lineup) {
+          independentDefer(plan, "原生队伍里缺少碑文所需的成员");
+          return;
+        }
+      }
+      const activate = () => {
+        runtime.independentRun = { plan, handled: false };
+      };
+      const entered = await enterIndependentZone(plan, null, activate);
+      if (!entered) {
+        if (runtime.manualFixedTeam || nativeFixedEditor()) return;
+        independentDefer(plan, plan.eliteTier ? "游戏精英入口暂未开放，请查看地下通道解锁状态和时间条件" : "游戏碑文入口暂未开放");
+        if (independentRunning() && !readSave().adv.battle && !readSave().adv.pending) await openScreen("adventure");
+        return;
+      }
+      if (plan.eliteTier) adoptEliteSelection(readSave(), runtime.independentRun);
+    });
+  }
+
+  function resumeIndependentCondition(save) {
+    const active = save.adv.zone;
+    if (!active?.riddle && !active?.elite) return null;
+    const zones = roadPrerequisiteZones(save).filter((zone) => conditionLeaves(zone.condition).some((rule) =>
+      (rule.kind === "door" && rule.key === active.riddle && zone.id === Number(active.id))
+      || (rule.kind === "elite" && rule.zone === Number(active.id) && rule.tier >= Number(active.elite))));
+    const plan = independentConditionPlan(save, zones);
+    if (!plan || !independentInside(save, plan)) return null;
+    if (plan.rule && !plan.rule.wait) {
+      const answer = inscriptionCandidates(save, plan.rule);
+      if (!answer.answer || answer.lineup) return null;
+    }
+    runtime.target = plan.independent;
+    runtime.targetPlan = plan;
+    runtime.independentRun = { plan, handled: false };
+    if (plan.eliteTier) adoptEliteSelection(save, runtime.independentRun);
+    return runtime.independentRun;
+  }
+
+  function adoptEliteSelection(save, run, tried = new Set()) {
+    const signature = fixedTeamSignature(save, run.plan);
+    if (signature !== "[]") tried.add(signature);
+    Object.assign(run, { signature, tried, exhausted: false, tries: Number(save.adv.zone?.tries || 1) });
+    runtime.attempts = 0;
+    runtime.teamPlan = null;
+    showFixedTeam(save, run.plan, "当前精英出阵阵容");
+  }
+
+  async function continueIndependentCondition(save) {
+    if (!independentRunning()) return false;
+    if (runtime.manualFixedTeam || nativeFixedEditor()) return true;
+    const run = runtime.independentRun || resumeIndependentCondition(save);
+    if (!run) return false;
+    const { plan } = run;
+    if (independentComplete(save, plan)) {
+      log(`${plan.label} · 已满足`);
+      runtime.independentRun = null;
+      clearCollectionTarget();
+      return false;
+    }
+    if (!independentInside(save, plan)) {
+      independentDefer(plan, "已离开原生地点，稍后重新检查条件");
+      return false;
+    }
+    if (save.adv.battle && !plan.eliteTier) return true;
+    if (!plan.eliteTier) {
+      const pending = save.adv.pending;
+      if (pending?.type !== "riddle" || pending.waitAt) return true;
+      const control = document.querySelector(`#arena .rd-acts [data-rd="${run.handled ? "pass" : plan.rule.wait ? "wait" : "show"}"]`);
+      if (!control || control.disabled) return true;
+      await exclusive(plan.label, async () => {
+        if (!independentRunning()) return;
+        if (run.handled) {
+          await pacedClick(control, "退出本次碑文尝试");
+          return;
+        }
+        const current = readSave();
+        const nativeTeam = availableTeamCandidates(current).filter((mon) => current.team?.includes(mon.uid));
+        const answer = nativeTeam.find((mon) => plan.rule.team ? plan.rule.team.includes(mon.id) : species(mon.id)?.t.includes(plan.rule.type));
+        if (!plan.rule.wait && (!answer || plan.rule.team?.some((id) => !nativeTeam.some((mon) => mon.id === id)))) return;
+        await pacedClick(control, plan.label);
+        if (plan.rule.wait) return;
+        const card = await waitFor(() => document.querySelector(`.rd-dlg .rd-mon[data-uid="${CSS.escape(String(answer.uid))}"]`),
+          { label: "碑文队员选择" });
+        if (!independentRunning()) return;
+        await pacedClick(card, legendaryName(answer.id));
+        run.handled = true;
+      });
+      return true;
+    }
+    if (run.signature !== fixedTeamSignature(save, plan)) adoptEliteSelection(save, run);
+    const tries = Number(save.adv.zone.tries || 1);
+    if (!fixedTeamFighting(save, run.signature)) run.tries = tries;
+    const losses = Math.max(0, tries - run.tries);
+    runtime.attempts = losses;
+    if (save.adv.battle || save.adv.pending || run.exhausted || losses < SPECIAL_ROTATE_AFTER) return true;
+    await exclusive("精英三连败换队", async () => {
+      const isActive = (current) => runtime.independentRun === run && independentInside(current, plan) && !independentComplete(current, plan);
+      const fresh = readSave();
+      if (fresh.adv.battle || fresh.adv.pending || !isActive(fresh)) return;
+      const result = await automaticFixedTeam(plan, Number(fresh.adv.zone.foe ?? plan.speciesId), run.tried, run.signature, isActive);
+      if (result.team) {
+        const latest = readSave();
+        adoptEliteSelection(latest, run, run.tried);
+        showFixedTeam(latest, plan, result.team.usesPopularity ? "精英已按最常选用换队" : "精英已按对位换队", result.team);
+      } else if (result.exhausted) {
+        run.exhausted = true;
+        showFixedTeam(readSave(), plan, "无新的合格精英阵容，可手动换队");
+      }
+      if (!runtime.manualFixedTeam && !nativeFixedEditor() && independentRunning()
+        && document.querySelector("#screen-map.active")) await openScreen("adventure");
+    });
+    return true;
   }
 
   async function legendaryCollectionTick(save, collectMissing) {
@@ -2856,15 +3788,52 @@
         await specialCollectionTick(save, plan);
         return true;
       }
-      if (collectMissing && plansForSpecies(save, id).length) return false;
+      if (collectMissing && plansForSpecies(save, id).length) {
+        if (runtime.targetPlan?.orbFarm || runtime.targetPlan?.prerequisiteFor) clearCollectionTarget();
+        return false;
+      }
     }
 
+    // 宝珠任务和由它解锁的捕获优先于普通自动神兽目标。
+    const unlockedOrbTarget = [483, 484, 487, 48701].map((id) => specialPlansForSpecies(save, id)[0]).find(Boolean);
+    if (unlockedOrbTarget) {
+      await specialCollectionTick(save, unlockedOrbTarget);
+      return true;
+    }
+    const farm = orbFarmPlan(save);
+    if (farm) {
+      await orbFarmTick(save, farm);
+      return true;
+    }
     const plan = specialChoiceIds().map((id) => specialPlansForSpecies(save, id)[0]).find(Boolean);
     if (plan) {
       await specialCollectionTick(save, plan);
       return true;
     }
-    if (runtime.targetPlan?.special) clearCollectionTarget();
+    const zones = roadPrerequisiteZones(save);
+    const independent = independentConditionPlan(save, zones);
+    if (independent) {
+      await executeIndependentCondition(save, independent);
+      return true;
+    }
+    const dex = roadDexPrerequisitePlan(save, zones);
+    if (dex) {
+      await collectTick(save, { trackRoamers: false, collectMissing: true, prerequisitePlan: dex });
+      return true;
+    }
+    const trainers = trainerPrerequisitePlan(save, zones);
+    if (trainers) {
+      await orbFarmTick(save, trainers);
+      return true;
+    }
+    if (!collectMissing) {
+      const story = legendaryStoryPrerequisitePlan(save);
+      if (story) {
+        await collectionUnlockTick(save, story);
+        return true;
+      }
+    }
+    if (runtime.targetPlan?.special || runtime.targetPlan?.orbFarm || runtime.targetPlan?.prerequisiteFor) clearCollectionTarget();
     return false;
   }
 
@@ -2916,15 +3885,9 @@
         || (item.staticEncounters || []).some((encounter) => Number(encounter.id) === Number(speciesId))) || null;
   }
 
-  function conditionContainsKind(condition, kind) {
-    if (!condition) return false;
-    if (condition.kind === kind) return true;
-    return condition.kind === "all" && (condition.list || []).some((item) => conditionContainsKind(item, kind));
-  }
-
   function specialNeedsStoryUnlock(save, special) {
     if (special.badge && !save.adv.badges?.includes(special.badge)) return true;
-    if (conditionContainsKind(special.condition, "league")) return true;
+    if (conditionLeaves(special.condition).some((condition) => condition.kind === "league" && !specialConditionStatus(save, condition, special).met)) return true;
     return DATA.chapters.some((item) => (
       item.region === special.region && item.index > save.adv.unlocked
       && item.routes.some((route) => route.areas.some((area) => special.areas.includes(area)))
@@ -3292,13 +4255,23 @@
       runtime.targetPlan = plan;
       runtime.userTeamOverride = false;
       const fresh = readSave();
-      const team = recommendTeam(fresh, targetEnemiesForChapter(plan.chapter), { targetLevel: chapter(plan.chapter)?.ace, chapterIndex: plan.chapter });
+      const team = recommendTeam(fresh, targetEnemiesForChapter(plan.chapter), {
+        candidateOverride: plan.legendaryStory && settings.candidatePool.enabled ? preferredTeamCandidates(fresh) : null,
+        targetLevel: chapter(plan.chapter)?.ace,
+        chapterIndex: plan.chapter,
+      });
+      if (plan.legendaryStory && !team.mons.length && settings.lockTeam5) return;
       await exclusive("配置全收集推图阵容", () => applyRecommendedTeam(team, `${plan.chapterName} · 解锁更多图鉴`));
       log(`为全收集推进${plan.chapterName}；下一次章节解锁后立即重新扫描`);
     }
   }
 
-  async function collectTick(save, { trackRoamers, collectMissing }) {
+  async function collectTick(save, { trackRoamers, collectMissing, prerequisitePlan = null }) {
+    if (prerequisitePlan) {
+      const old = runtime.targetPlan;
+      if (!old?.prerequisiteFor || old.speciesId !== prerequisitePlan.speciesId || old.chapter !== prerequisitePlan.chapter
+        || old.zone !== prerequisitePlan.zone) clearCollectionTarget();
+    }
     const roamers = trackRoamers ? activeRoamers(save).filter((item) => regionInCollectionScope(save, chapter(item.chapter)?.region)) : [];
     if (runtime.chapterReset) {
       const resettingRoamerId = runtime.targetPlan?.roaming ? runtime.targetPlan.speciesId : null;
@@ -3441,7 +4414,7 @@
       }
     }
 
-    const preferred = refreshCollectionQueue(save)[0] || null;
+    const preferred = prerequisitePlan || refreshCollectionQueue(save)[0] || null;
     if (runtime.targetPlan && !runtime.targetPlan.roaming && preferred && preferred.speciesId !== runtime.targetPlan.speciesId) {
       const shouldPreempt = runtime.targetPlan.moneyFarm
         || comparePriority(planPriority(save, preferred), planPriority(save, runtime.targetPlan)) < 0;
@@ -3469,7 +4442,7 @@
     }
 
     if (!runtime.targetPlan || (runtime.targetPlan.speciesId && isSpecialComplete(save, runtime.targetPlan.speciesId))) {
-      const next = chooseMissingPlan(save);
+      const next = prerequisitePlan || chooseMissingPlan(save);
       if (!next) {
         const unlock = collectionStoryUnlockPlan(save);
         if (unlock) {
@@ -3522,6 +4495,7 @@
         if (current.chapter !== next.chapter || current.zone || current.event) await switchChapter(next.chapter);
         const targetSave = readSave();
         const plan = recommendTeam(targetSave, [next.speciesId], {
+          candidateOverride: next.prerequisiteFor && settings.candidatePool.enabled ? preferredTeamCandidates(targetSave) : null,
           levelWeight: COLLECTION_LEVEL_WEIGHT,
           targetLevel: chapter(next.chapter)?.ace,
           chapterIndex: next.chapter,
@@ -3620,6 +4594,7 @@
   }
 
   function detectManualTeamChange(save) {
+    if (runtime.targetPlan?.special) return;
     if (Date.now() - runtime.lastTeamCheckAt < 1_500 || !runtime.teamPlan || runtime.busy) return;
     runtime.lastTeamCheckAt = Date.now();
     const signature = (save.teamSets?.list?.[4] || []).join("|");
@@ -3638,6 +4613,11 @@
       return;
     }
     try {
+      if (runtime.manualFixedTeam || nativeFixedEditor()) {
+        await finishManualFixedTeam();
+        renderStatus();
+        return;
+      }
       const save = readSave();
       await captureDebugState(save);
       if (save.adv?.event?.raid) {
@@ -3646,11 +4626,17 @@
         return;
       }
       if (!settings.prioritizeDailyRaid) runtime.dailyRaidActiveRegion = null;
-      if (!runtime.paused && !runtime.error && runtime.mode !== "idle" && await prioritizeDailyRaid(save)) {
+      const fixedZone = save.adv.zone && DATA.specialZones.some((zone) => zone.id === Number(save.adv.zone.id));
+      if (fixedZone && document.querySelector("#screen-map.active")) {
         renderStatus();
         return;
       }
-      if (!runtime.paused && !runtime.error && await manageBuddy(save)) {
+      const independentZone = fixedZone || runtime.independentRun;
+      if (!runtime.paused && !runtime.error && runtime.mode !== "idle" && !independentZone && await prioritizeDailyRaid(save)) {
+        renderStatus();
+        return;
+      }
+      if (!runtime.paused && !runtime.error && !independentZone && await manageBuddy(save)) {
         renderStatus();
         return;
       }
@@ -3660,8 +4646,16 @@
         return;
       }
       const current = readSave();
+      const active = !current.adv.zone?.elite && !current.adv.zone?.riddle ? Number(current.adv.zone?.id) : 0;
+      if (active && (["roaming", "combined"].includes(runtime.mode) || runtime.targetPlan?.special)) {
+        observeFixedFight(current, specialPlansForSpecies(current, active)[0]);
+      }
       observeBattle(current);
       detectManualTeamChange(current);
+      if (await continueIndependentCondition(current)) {
+        renderStatus();
+        return;
+      }
       if (current.adv.battle || current.adv.pending || current.adv.zone?.riddle || current.adv.zone?.elite || current.adv.league || current.adv.tower) {
         renderStatus();
         return;
@@ -3686,6 +4680,8 @@
       log(`游戏版本${compatibility.build}尚未验证；关键页面结构正常，继续运行并保留结构安全检查`);
     }
     runtime.mode = mode;
+    runtime.specialFight = null;
+    runtime.independentBlocks.clear();
     runtime.pushRegion = mode === "push" ? currentRegion(readSave()) : null;
     runtime.paused = false;
     runtime.target = null;
@@ -3718,6 +4714,8 @@
 
   function stopMode() {
     runtime.mode = "idle";
+    runtime.specialFight = null;
+    runtime.manualFixedTeam = null;
     runtime.paused = false;
     runtime.target = null;
     runtime.targetPlan = null;
@@ -4133,6 +5131,7 @@
       else if (action === "stop") stopMode();
       else if (action === "copy") copyTeam();
       else if (action === "reteam") regenerateTeam();
+      else if (action === "fixed-manual") requestManualFixedTeam();
       else if (action === "pension-berries") exclusive(language() === "en" ? "Open Day Care" : "打开培育屋", () => openScreen("pension"));
       else if (action === "training-save") saveCandidatePool();
       else if (["training-reset", "training-clear", "training-visible", "training-team"].includes(action)) candidatePoolSelectionAction(action);
@@ -4270,7 +5269,7 @@
   }
 
   function statusSummaryHtml() {
-    return `<div class="pca-summary" aria-label="${t("statusTitle")}"><div class="pca-summary-main"><span>${t("task")}<b data-status="mode">${t("idle")}</b></span><span>${t("target")}<b data-status="target">—</b></span><span>${t("progress")}<b data-status="attempts">0</b></span></div><div class="pca-summary-extra"><span>${t("place")}<b data-status="place">—</b></span><span>${t("buffs")}<b data-status="buffs">—</b></span><span>${t("fifthTeam")}<b data-status="team" class="pca-team">${t("notGenerated")}</b></span></div></div>`;
+    return `<div class="pca-summary" aria-label="${t("statusTitle")}"><div class="pca-summary-main"><span>${t("task")}<b data-status="mode">${t("idle")}</b></span><span>${t("target")}<b data-status="target">—</b></span><span>${t("progress")}<b data-status="attempts">0</b></span></div><div class="pca-summary-extra"><span>${t("place")}<b data-status="place">—</b></span><span>${t("buffs")}<b data-status="buffs">—</b></span><span><span data-status="team-label">${t("fifthTeam")}</span><b data-status="team" class="pca-team">${t("notGenerated")}</b></span><button type="button" class="pca-btn" data-act="fixed-manual" hidden>${language() === "en" ? "Edit zone team" : "手动换队"}</button></div></div>`;
   }
 
   function selectPanelTab(panel, tab) {
@@ -4381,6 +5380,7 @@
   }
 
   async function regenerateTeam() {
+    if (fixedManualPlan(readSave())) return requestManualFixedTeam();
     if (!runtime.targetPlan) return alert("当前没有目标");
     runtime.userTeamOverride = false;
     const save = readSave();
@@ -4390,7 +5390,7 @@
       : [runtime.targetPlan.speciesId].filter(Boolean);
     const levelWeight = storyTarget ? DEFAULT_LEVEL_WEIGHT : COLLECTION_LEVEL_WEIGHT;
     const targetLevel = storyTarget ? chapter(save.adv.chapter)?.ace : chapter(runtime.targetPlan.chapter)?.ace;
-    const plan = runtime.targetPlan.roaming || runtime.targetPlan.special
+    const plan = runtime.targetPlan.roaming
       ? recommendRoamingTeam(save, runtime.targetPlan.speciesId)
       : recommendTeam(save, enemyIds, { levelWeight, targetLevel, chapterIndex: storyTarget ? save.adv.chapter : null });
     await exclusive("手动重新生成阵容", () => applyRecommendedTeam(plan, "用户要求重新生成"));
@@ -4467,6 +5467,9 @@
       ? `${t("dailyRaid")}${raidEvent?.id ? ` · ${species(raidEvent.id)?.n || raidEvent.id}` : ""}`
       : runtime.target === "roam:waiting"
         ? t("waitingRoamers")
+        : runtime.targetPlan?.independent ? runtime.targetPlan.label
+        : runtime.targetPlan?.orbFarm ? orbFarmLabel(runtime.targetPlan)
+        : runtime.targetPlan?.prerequisiteFor ? `${language() === "en" ? "Prerequisite" : "图鉴前置"} · ${species(runtime.targetPlan.speciesId)?.n || runtime.targetPlan.speciesId}`
         : runtime.targetPlan?.moneyFarm ? t("moneyFarm")
         : runtime.targetPlan?.speciesId ? species(runtime.targetPlan.speciesId)?.n : runtime.targetPlan?.chapterName;
     panel.querySelectorAll('[data-status="target"]').forEach((node) => { node.textContent = targetName || "—"; });
@@ -4475,12 +5478,17 @@
         ? `${t("dailyRaid")} · ${t(runtime.dailyRaidActiveRegion || raidEvent?.reg)}`
         : `${chapter(save?.adv?.chapter)?.name || "—"}${runtime.targetPlan?.zone ? ` / ${runtime.targetPlan.zone}` : ""}`;
     });
-    let attemptText = String(runtime.attempts);
+    let attemptText = runtime.targetPlan?.orbFarm
+      ? (language() === "en" ? `Restarts: ${runtime.attempts}` : `重开 ${runtime.attempts} 轮`)
+      : String(runtime.attempts);
     if (runtime.targetPlan?.roaming && runtime.attempts > 0) {
       const captureKey = save?.buffs?.capture?.key;
       const multiplier = captureKey === "golden-razz-berry" ? 1.5 : captureKey === "razz-berry" ? 1.25 : 1;
       const probability = 1 - (1 - 0.04 * multiplier) ** runtime.attempts;
       attemptText += ` · ${t("cumulative")} ${(probability * 100).toFixed(1)}%`;
+    }
+    if (runtime.specialFight && Number(save?.adv?.zone?.id) === runtime.specialFight.id) {
+      attemptText += language() === "en" ? ` · Losses ${runtime.specialFight.losses}/3` : ` · 连败 ${runtime.specialFight.losses}/3`;
     }
     panel.querySelectorAll('[data-status="attempts"]').forEach((node) => { node.textContent = attemptText; });
     const activeBuffs = Object.values(save?.buffs || {}).filter((buff) => buff?.until > Date.now()).map((buff) => {
@@ -4488,6 +5496,14 @@
       return `${berryLabel(BERRIES[buff.key]) || buff.key} ${Math.ceil(left / 60_000)} ${t("minutes")}`;
     });
     panel.querySelectorAll('[data-status="buffs"]').forEach((node) => { node.textContent = activeBuffs.join(language() === "en" ? ", " : "、") || "—"; });
+    const manual = panel.querySelector('[data-act="fixed-manual"]');
+    if (manual) {
+      manual.hidden = !fixedManualPlan(save);
+      manual.disabled = Boolean(runtime.manualFixedTeam);
+    }
+    panel.querySelectorAll('[data-status="team-label"]').forEach((node) => {
+      node.textContent = fixedManualPlan(save) ? (language() === "en" ? "Zone team" : "专属队伍") : t("fifthTeam");
+    });
     panel.querySelectorAll('[data-status="team"]').forEach((node) => { node.textContent = runtime.teamStatus === "未生成" ? t("notGenerated") : runtime.teamStatus; });
     const buddyStatus = panel.querySelector("#pca-buddy-status");
     if (buddyStatus) buddyStatus.textContent = runtime.buddyStatus || buddyStatusText(save);
@@ -4522,6 +5538,7 @@
     renderPanel();
     offerResume();
     observeDebugBattle();
+    observeFixedFightLog();
     refreshDebugRecent();
     runtime.timer = setInterval(tick, 900);
     const timeline = document.querySelector("#timeline");
@@ -4537,6 +5554,11 @@
       });
       runtime.timelineObserver.observe(timeline, { subtree: true, attributes: true, attributeFilter: ["class"] });
     }
+    document.addEventListener("pointerdown", (event) => {
+      if (event.isTrusted && runtime.fixedAutoEditor && event.target.closest?.("#evt-pick.open")) {
+        runtime.fixedAutoEditor.taken = true;
+      }
+    }, true);
     document.addEventListener("click", (event) => {
       if (runtime.mode === "idle" || runtime.busy || !event.isTrusted) return;
       const manualGo = event.target.closest?.(".mp-go[data-go]");
