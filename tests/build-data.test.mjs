@@ -50,8 +50,8 @@ function sourceFunctions(names, context = {}) {
 }
 
 test("generated data matches the inspected game build", () => {
-  assert.equal(data.appBuild, "3bdd8140e1");
-  assert.equal(data.langBuild, "db67ebc671");
+  assert.equal(data.appBuild, "f01c6dd773");
+  assert.equal(data.langBuild, "db096ca203");
   assert.equal(Object.keys(data.species).length, 721);
   assert.equal(data.species[4].n, "小火龙");
   assert.deepEqual(data.species[4].t, ["fire"]);
@@ -63,23 +63,31 @@ test("generated data matches the inspected game build", () => {
   assert.equal(data.battle.gymDamage, 1.3);
   assert.deepEqual(data.battle.gymTrainers.counts, [1, 2, 2, 3]);
   assert.deepEqual(data.battle.gymTrainers.below, [4, 2, 2]);
+  assert.equal(
+    data.specialZones.find((item) => item.id === 48701).condition.list[1].text,
+    "获得白金宝珠：在精英I中打败骑拉帝纳",
+  );
+  assert.equal(
+    data.specialZones.find((item) => item.id === 49201).condition.list[1].text,
+    "白天带着谢米在队伍中，在花苑花田收下葛拉西蒂亚花",
+  );
 });
 
-test("userscript and development metadata share version 0.16.1", () => {
-  assert.equal(packageJson.version, "0.16.1");
-  assert.ok(source.includes("// @version      0.16.1"));
-  assert.ok(source.includes('const VERSION = "0.16.1"'));
-  assert.ok(viteConfig.includes('version: "0.16.1"'));
+test("userscript and development metadata share version 0.16.2", () => {
+  assert.equal(packageJson.version, "0.16.2");
+  assert.ok(source.includes("// @version      0.16.2"));
+  assert.ok(source.includes('const VERSION = "0.16.2"'));
+  assert.ok(viteConfig.includes('version: "0.16.2"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   assert.ok(viteConfig.includes("/;\\r?\\n  const SAVE_KEY/"));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.16.1-blue"));
+  assert.ok(readme.includes("version-0.16.2-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.16.1"));
   assert.ok(readme.includes("fe212d1263400d7c4746b70845d7f9716d8977c1/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.16.1"));
+  assert.ok(changelog.includes("## 0.16.2"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -104,7 +112,7 @@ test("compatibility verifies known bundles and allows structurally compatible un
   const unknown = validateCompatibility();
   assert.equal(unknown.ok, true);
   assert.equal(unknown.verified, false);
-  assert.equal(unknown.expected, "3bdd8140e1, 7acad22262, 021c85dbba, 6e45170313");
+  assert.equal(unknown.expected, "f01c6dd773, 7acad22262, 021c85dbba, 6e45170313");
   document.querySelector = (selector) => selector === "#timeline" ? null : {};
   const incompatible = validateCompatibility();
   assert.equal(incompatible.ok, false);
@@ -789,7 +797,16 @@ test("daily raids run before automatic tasks and keep their dedicated team", () 
   assert.ok(sourceFunctionText("selectFirstDailyRaidAllies").includes("#modal-root.open .raid-dlg [data-pick]"));
   assert.ok(raidFlow.includes('root.querySelector(".rc-card, [data-p]")'));
   assert.equal(raidFlow.includes('root.querySelector(".rc-card, [data-p], .pg-empty")'), false);
-  assert.ok(raidFlow.includes("runtime.dailyRaidRetryAt = Date.now() + 5 * 60_000"));
+  assert.ok(raidFlow.includes("dailyRaidEntryState(root)"));
+  assert.ok(raidFlow.includes("deferDailyRaidCheck"));
+
+  const { dailyRaidEntryState } = sourceFunctions(["dailyRaidEntryState"]);
+  const rootWith = (entries) => ({ querySelector: (selector) => entries[selector] || null });
+  const completedCard = { className: "rc-card done" };
+  assert.equal(dailyRaidEntryState(rootWith({ ".rc-card": completedCard })).type, "list");
+  assert.equal(dailyRaidEntryState(rootWith({ ".rc-card": completedCard })).element, completedCard);
+  assert.equal(dailyRaidEntryState(rootWith({ '[data-raid-page="chroma"]': {} })).type, "page");
+  assert.equal(dailyRaidEntryState(rootWith({})), null);
 
   const { raidDateKey, raidSetupStatus } = sourceFunctions(["raidDateKey", "raidSetupStatus"]);
   assert.equal(raidDateKey(Date.parse("2026-11-17T23:30:00Z")), "2026-11-18");
@@ -1212,6 +1229,11 @@ test("team automation uses the game's drag interaction instead of opening detail
   assert.ok(source.includes('event("pointermove"'));
   assert.ok(source.includes('event("pointerup"'));
   assert.equal(source.includes("card.click();"), false);
+  const fifthTeamSignature = sourceFunction("fifthTeamSignature");
+  assert.equal(fifthTeamSignature({ team: ["new-1", "new-2"], teamSets: { on: 4, list: [[], [], [], [], ["old-1"]] } }), "new-1|new-2");
+  assert.equal(fifthTeamSignature({ team: ["other"], teamSets: { on: 2, list: [[], [], [], [], ["saved-1", "saved-2"]] } }), "saved-1|saved-2");
+  assert.ok(sourceFunctionText("applyRecommendedTeam").includes("fifthTeamSignature(readSave())"));
+  assert.ok(sourceFunctionText("detectManualTeamChange").includes("fifthTeamSignature(save)"));
 });
 
 test("automated page actions use randomized conservative pacing", () => {

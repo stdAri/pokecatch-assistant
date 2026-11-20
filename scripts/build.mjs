@@ -135,7 +135,18 @@ const storyRegions = evaluateLiteral(extractLiteralFromPattern(/REGIONS:\[\{key:
 const chapterLiteral = extractLiteral("CHAPTERS:[", "[", "]");
 const unownLetters = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ", "!", "?"];
 const unownIds = unownLetters.map((_, index) => index === 0 ? 201 : 20100 + index);
-const chapters = evaluateLiteral(chapterLiteral, { a: { UNOWN: { ids: unownIds } } });
+const chapterScope = { a: { UNOWN: { ids: unownIds } } };
+const manaphyEggLootMatch = bundle.match(
+  /const ([A-Za-z_$][\w$]*)=\{p:1,badge:"Maître Sinnoh",eggs:20,/,
+);
+if (manaphyEggLootMatch) {
+  chapterScope[manaphyEggLootMatch[1]] = evaluateLiteral(extractLiteralFromPattern(
+    /const [A-Za-z_$][\w$]*=\{p:1,badge:"Maître Sinnoh",eggs:20,/,
+    "{",
+    "}",
+  ));
+}
+const chapters = evaluateLiteral(chapterLiteral, chapterScope);
 const chapterRegions = [];
 let chapterRegion = "kanto";
 for (const chapter of chapters) {

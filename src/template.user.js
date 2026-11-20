@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokeCatch Assistant / 全图鉴与推图助手
 // @namespace    local.pokecatch.assistant
-// @version      0.16.1
+// @version      0.16.2
 // @description  Bilingual story, Pokédex, roaming, team and berry automation / 中英双语推图、图鉴、神兽、队伍和果子自动化。
 // @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
 // @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js
@@ -21,7 +21,7 @@
   const SETTINGS_KEY = "pca.settings.v1";
   const SESSION_KEY = "pca.session.v1";
   const PANEL_ID = "pca-panel";
-  const VERSION = "0.16.1";
+  const VERSION = "0.16.2";
   const PROJECT_URL = "https://github.com/stdAri/pokecatch-assistant";
   const ISSUES_URL = `${PROJECT_URL}/issues/new`;
   const COMPATIBLE_APP_BUILDS = new Set([DATA.appBuild, "7acad22262", "021c85dbba", "6e45170313"]);
@@ -1733,6 +1733,26 @@
     if (message) log(message);
   }
 
+  function dailyRaidEntryState(root) {
+    for (const [type, selector] of [
+      ["login", "[data-p]"],
+      ["list", ".rc-card"],
+      ["draw", "[data-raid-draw]"],
+      ["page", '[data-raid-page="chroma"]'],
+      ["empty", ".pg-empty"],
+    ]) {
+      const element = root.querySelector(selector);
+      if (element) return { type, element };
+    }
+    return null;
+  }
+
+  function deferDailyRaidCheck(message) {
+    runtime.dailyRaidRetryAt = Date.now() + 5 * 60_000;
+    runtime.dailyRaidActiveRegion = null;
+    log(message);
+  }
+
   async function prioritizeDailyRaid(save) {
     if (!settings.prioritizeDailyRaid) return false;
     const date = raidDateKey(Number(save.lastTick) || Date.now());
@@ -1754,28 +1774,36 @@
     return exclusive(language() === "en" ? "Check daily raid" : "检查每日团体战", async () => {
       await openScreen("raid");
       const root = await waitFor(() => document.querySelector("#raid-root"), { label: t("dailyRaid") });
-      const entry = await waitFor(
-        () => root.querySelector("[data-raid-draw], [data-raid-page=\"chroma\"], [data-p], .pg-empty"),
-        { timeout: 15_000, label: language() === "en" ? "daily raid entry" : "每日团体战入口" },
-      );
+      let entry;
+      try {
+        entry = await waitFor(
+          () => dailyRaidEntryState(root),
+          { timeout: 15_000, label: language() === "en" ? "daily raid entry" : "每日团体战入口" },
+        );
+      } catch {
+        deferDailyRaidCheck(language() === "en"
+          ? "Daily raid entry is still unavailable; retrying in five minutes"
+          : "每日团体战入口暂时不可用，继续当前任务并在5分钟后重试");
+        return;
+      }
 
-      if (entry.matches("[data-p]")) {
+      if (entry.type === "login") {
         finishDailyRaidCheck(date, language() === "en" ? "Daily raid skipped: sign in to the game first" : "今日团体战已跳过：请先登录游戏账号");
         return;
       }
-      if (entry.matches(".pg-empty")) {
+      if (entry.type === "empty") {
         finishDailyRaidCheck(date, language() === "en" ? "Daily raid is not available yet" : "今日没有可用团体战或尚未解锁");
         return;
       }
-      if (entry.matches("[data-raid-draw]")) {
-        await pacedClick(entry, language() === "en" ? "daily raid draw" : "抽取每日团体战");
+      if (entry.type === "draw") {
+        await pacedClick(entry.element, language() === "en" ? "daily raid draw" : "抽取每日团体战");
         await waitFor(
           () => root.querySelector("[data-raid-page=\"chroma\"], .rc-card, [data-p]"),
           { timeout: 20_000, label: language() === "en" ? "daily raid draw" : "每日团体战抽取" },
         );
       }
 
-      const raidPage = root.querySelector('[data-raid-page="chroma"]');
+      const raidPage = entry.type === "page" ? entry.element : root.querySelector('[data-raid-page="chroma"]');
       if (raidPage) {
         await pacedClick(raidPage, language() === "en" ? "daily raid" : "每日团体战入口");
       }
@@ -1785,9 +1813,7 @@
           { timeout: 15_000, label: language() === "en" ? "daily raid list" : "每日团体战列表" },
         );
       } catch {
-        runtime.dailyRaidRetryAt = Date.now() + 5 * 60_000;
-        runtime.dailyRaidActiveRegion = null;
-        log(language() === "en"
+        deferDailyRaidCheck(language() === "en"
           ? "Daily raid data is still unavailable; retrying in five minutes"
           : "团体战数据暂时不可用，5分钟后重试");
         return;
@@ -2082,7 +2108,7 @@
       return;
     }
     await configurePreset(4, plan.mons.map((mon) => mon.uid));
-    runtime.lastTeamSignature = (readSave().teamSets?.list?.[4] || []).join("|");
+    runtime.lastTeamSignature = fifthTeamSignature(readSave());
     runtime.teamStatus = `已应用：${plan.details.map((item) => item.name).join("、")}`;
     log(runtime.teamStatus);
   }
@@ -3619,10 +3645,15 @@
     }
   }
 
+  function fifthTeamSignature(save) {
+    const team = Number(save.teamSets?.on) === 4 ? save.team : save.teamSets?.list?.[4];
+    return (team || []).join("|");
+  }
+
   function detectManualTeamChange(save) {
     if (Date.now() - runtime.lastTeamCheckAt < 1_500 || !runtime.teamPlan || runtime.busy) return;
     runtime.lastTeamCheckAt = Date.now();
-    const signature = (save.teamSets?.list?.[4] || []).join("|");
+    const signature = fifthTeamSignature(save);
     if (runtime.lastTeamSignature && signature && signature !== runtime.lastTeamSignature) {
       runtime.userTeamOverride = true;
       runtime.teamStatus = "用户阵容（本目标不再覆盖）";
