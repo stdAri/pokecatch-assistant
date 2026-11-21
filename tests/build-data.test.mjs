@@ -50,7 +50,7 @@ function sourceFunctions(names, context = {}) {
 }
 
 test("generated data matches the inspected game build", () => {
-  assert.equal(data.appBuild, "b9a56b0fa6");
+  assert.equal(data.appBuild, "afa835c8d5");
   assert.equal(data.langBuild, "db096ca203");
   assert.equal(Object.keys(data.species).length, 721);
   assert.equal(data.species[4].n, "小火龙");
@@ -73,21 +73,21 @@ test("generated data matches the inspected game build", () => {
   );
 });
 
-test("userscript and development metadata share version 0.17.3", () => {
-  assert.equal(packageJson.version, "0.17.3");
-  assert.ok(source.includes("// @version      0.17.3"));
-  assert.ok(source.includes('const VERSION = "0.17.3"'));
-  assert.ok(viteConfig.includes('version: "0.17.3"'));
+test("userscript and development metadata share version 0.17.4", () => {
+  assert.equal(packageJson.version, "0.17.4");
+  assert.ok(source.includes("// @version      0.17.4"));
+  assert.ok(source.includes('const VERSION = "0.17.4"'));
+  assert.ok(viteConfig.includes('version: "0.17.4"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   assert.ok(viteConfig.includes("/;\\r?\\n  const SAVE_KEY/"));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.17.3-blue"));
+  assert.ok(readme.includes("version-0.17.4-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.17.3"));
   assert.ok(readme.includes("f9fb5c1e0e097f02cf93e3921e99276063d14f34/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.17.3"));
+  assert.ok(changelog.includes("## 0.17.4"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -112,7 +112,7 @@ test("compatibility verifies known bundles and allows structurally compatible un
   const unknown = validateCompatibility();
   assert.equal(unknown.ok, true);
   assert.equal(unknown.verified, false);
-  assert.equal(unknown.expected, "b9a56b0fa6, 7acad22262, 021c85dbba, 6e45170313");
+  assert.equal(unknown.expected, "afa835c8d5, 7acad22262, 021c85dbba, 6e45170313");
   document.querySelector = (selector) => selector === "#timeline" ? null : {};
   const incompatible = validateCompatibility();
   assert.equal(incompatible.ok, false);
