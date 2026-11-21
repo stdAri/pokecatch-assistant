@@ -14,7 +14,7 @@ function loadAssistant() {
     mons: [], dex: { 479: { caught: 1 } }, team: [], items: {}, roam: { at: {} },
   };
   const localSettings = { language: 'zh', regionScope: 'custom', customRegions: ['sinnoh'], manualTargets: [] };
-  const map = { open: false, region: 'johto', row: null, view: 'teams', locked: false, sealed: false, closed: false };
+  const map = { open: false, region: 'johto', row: null, view: 'teams', leagueView: 'elite', locked: false, sealed: false, closed: false };
   const button = (id, click = () => {}, props = {}) => ({ id, click, ...props });
   const document = {
     querySelector(selector) {
@@ -23,6 +23,18 @@ function loadAssistant() {
       if (selector === '#screen-map.active' || selector === '#screen-map.active #map-root') return {};
       if (selector === '#map-root .rg.open[data-rg="sinnoh"]') {
         return button('sinnoh', () => { map.region = 'sinnoh'; map.row = null; });
+      }
+      const region = selector.match(/^\.rg\.open\[data-rg="([^"]+)"\]$/)?.[1];
+      if (region) return button(region, () => { map.region = region; map.row = null; });
+      if (selector === '.mp-row[data-ch="L"]') return button('L', () => { map.row = 'L'; });
+      if (selector === '[data-lg-view="league"]:not(.on)' && map.row === 'L' && map.leagueView === 'elite') {
+        return button('ordinary', () => { map.leagueView = 'league'; });
+      }
+      if (selector === '.mp-go[data-go="L"]' && map.row === 'L' && map.leagueView === 'league') {
+        return button('go-league', () => {
+          const group = api.DATA.chapters.filter((entry) => entry.region === map.region && entry.league);
+          Object.assign(save.adv, { chapter: group[0].index, node: 0 });
+        });
       }
       if (selector === '#map-root .mp-row[data-ch="Z480"]' && map.region === 'sinnoh' && !map.locked) {
         return button('Z480', () => { map.row = 'Z480'; }, { classList: { contains: (name) => name === 'lz-seal' && map.sealed } });
@@ -36,6 +48,7 @@ function loadAssistant() {
       return null;
     },
   };
+  let api;
   const context = {
     window: {}, document, structuredClone, console: { log() {}, error() {} },
     localStorage: { getItem(key) { return JSON.stringify(key === 'gachamon-save-v1' ? save : localSettings); } },
@@ -45,9 +58,17 @@ function loadAssistant() {
   assert.ok(source.includes(marker));
   const probe = `
   globalThis.p = { DATA, settings, runtime, enterSpecialZone, specialTargetStatus, specialPlansForSpecies,
-    activeRoamers, normalTransitChapter, actualStoryChapter, plansForSpecies, collectTick, specialMoonAt };
+    activeRoamers, normalTransitChapter, actualStoryChapter, plansForSpecies, collectTick, specialMoonAt,
+    switchChapter, orbFarmPlan, fixedSelectedUids, observeFixedFight, recommendFixedTeam,
+    independentConditionPlan, roadPrerequisiteZones };
   openScreen = async () => { fixture.map.open = false; };
-  pacedClick = async (element) => { fixture.actions.push(element.id); element.click(); };
+  runtime.mode = 'roaming';
+  pacedClick = async (element, _label, _pacing, allowed = () => true) => {
+    if (!allowed()) return false;
+    fixture.actions.push(element.id);
+    element.click();
+    return true;
+  };
   waitFor = async (get, { label }) => { const value = get(); if (!value) throw Error('等待' + label + '超时'); return value; };
   log = () => {};
   exclusive = async (_, action) => { await action(); return true; };
@@ -57,6 +78,7 @@ function loadAssistant() {
   return;
   `;
   vm.runInNewContext(source.replace(marker, probe + marker), context, { timeout: 3000 });
+  api = context.p;
   return { p: context.p, save, actions, map, fixture: context.fixture };
 }
 
@@ -100,6 +122,9 @@ test('legendary-only collection selects an available fixed target and continues 
   const { p, save, actions, map } = loadAssistant();
   const ordinarySinnoh = Object.entries(p.DATA.species).filter(([id, mon]) => id >= 387 && id <= 493 && !mon.g && !mon.m);
   for (const [id] of ordinarySinnoh.slice(0, 75)) save.dex[id] = { caught: 1 };
+  for (const zone of p.DATA.specialZones.filter((zone) => zone.region === 'sinnoh' && zone.id !== 480)) {
+    save.dex[zone.id] = { caught: 1 };
+  }
   map.closed = true;
   const mode = { trackRoamers: true, collectMissing: false };
   await p.collectTick(save, mode);
@@ -122,6 +147,106 @@ test('league navigation follows the active stage and Rotom uses a normal transit
   assert.equal(p.actualStoryChapter(save, 64), 60);
   save.adv.chapter = 62;
   assert.equal(p.actualStoryChapter(save, 64), 62);
+});
+
+test('each regional league selects its row before switching away from Elite, and keeps a live stage', async () => {
+  for (const region of ['kanto', 'johto', 'hoenn', 'sinnoh', 'unova']) {
+    const { p, save, actions } = loadAssistant();
+    const group = p.DATA.chapters.filter((entry) => entry.region === region && entry.league);
+    const first = group[0].index, requested = group.at(-1).index;
+    save.adv.chapter = first - 1;
+    save.adv.unlocked = requested;
+    assert.equal(await p.switchChapter(requested, { settle: false }), first);
+    assert.deepEqual(actions, ['map', region, 'L', 'ordinary', 'go-league']);
+    save.adv.chapter = group[1].index;
+    save.adv.node = 2;
+    assert.equal(await p.switchChapter(requested, { settle: false }), group[1].index);
+    assert.equal(save.adv.node, 2);
+    assert.equal(actions.length, 5);
+  }
+});
+
+test('road and Elite prerequisite sources stay distinct', () => {
+  const { p, save } = loadAssistant();
+  const sources = Array.from(p.DATA.roadItemSources);
+  assert.deepEqual(Array.from(new Set(sources.map(({ key }) => key))).sort(),
+    ['adamant-orb', 'dark-stone', 'gracidea', 'light-stone', 'lustrous-orb', 'reveal-glass']);
+  assert.deepEqual(Array.from(p.DATA.eliteItemSources, ({ key, zone, tier }) => [key, zone, tier]), [
+    ['griseous-orb', 487, 1], ['burn-drive', 649, 1], ['douse-drive', 649, 2],
+    ['shock-drive', 649, 3], ['chill-drive', 649, 4],
+  ]);
+  assert.equal(p.orbFarmPlan(save), null);
+  save.mons = [480, 481, 482].map((id) => ({ id }));
+  const plan = p.orbFarmPlan(save);
+  assert.equal(plan.chapter, 57);
+  assert.deepEqual(Array.from(plan.orbs, ({ key }) => key), ['adamant-orb', 'lustrous-orb']);
+  save.items['adamant-orb'] = 1;
+  assert.deepEqual(Array.from(p.orbFarmPlan(save).orbs, ({ key }) => key), ['lustrous-orb']);
+});
+
+test('Elite item rewards become native prerequisite plans instead of impossible road farms', () => {
+  const { p, save } = loadAssistant();
+  p.settings.customRegions = ['sinnoh', 'unova'];
+  save.adv.unlocked = 83;
+  save.adv.badges.push('Forêt');
+  save.mons = [{ id: 487, uid: 'giratina', reg: 'sinnoh' }];
+  save.dex[487] = { caught: 1 };
+  save.elite = { 487: { t: 0 } };
+  const zones = p.roadPrerequisiteZones(save).filter(({ id }) => id === 48701);
+  const plan = p.independentConditionPlan(save, zones);
+  assert.equal(plan.speciesId, 487);
+  assert.equal(plan.eliteTier, 1);
+  assert.equal(plan.condition.item, 'griseous-orb');
+  assert.equal(p.orbFarmPlan(save), null);
+
+  save.adv.chapter = 83;
+  save.mons = [{ id: 649, uid: 'genesect', reg: 'unova' }];
+  save.dex[649] = { caught: 1 };
+  save.elite = { 649: { t: 2 } };
+  const shockZone = p.DATA.specialZones.find(({ id }) => id === 64902);
+  const shockPlan = p.independentConditionPlan(save, [shockZone]);
+  assert.equal(shockPlan.speciesId, 649);
+  assert.equal(shockPlan.eliteTier, 3);
+  assert.equal(shockPlan.condition.item, 'shock-drive');
+});
+
+test('all outstanding Dialga prerequisites are reported together', () => {
+  const { p, save } = loadAssistant();
+  save.lastTick = new Date(2026, 10, 18, 23).getTime();
+  save.adv.badges = [];
+  const result = p.specialTargetStatus(save, 483);
+  assert.equal(result.open, false);
+  for (const detail of [/冠军/, /由克希/, /金刚宝珠/, /等待白天/]) assert.match(result.reason, detail);
+});
+
+test('manual zone team remains selected and changing it resets the defeat streak', () => {
+  const { p, save } = loadAssistant();
+  const plan = { special: true, speciesId: 483, region: 'sinnoh' };
+  save.mons = [{ id: 445, uid: 'garchomp' }, { id: 448, uid: 'lucario' }];
+  save.eventTeams = { 'zone:483': ['lucario'] };
+  save.road = ['lucario'];
+  save.adv.zone = { id: 483, foe: 483 };
+  save.adv.nodes = [{ type: 'static', id: 483 }];
+  assert.equal(p.observeFixedFight(save, plan).losses, 0);
+  for (let round = 0; round < 2; round++) {
+    save.adv.node = 0;
+    p.observeFixedFight(save, plan);
+    save.adv.node = 1;
+    p.observeFixedFight(save, plan);
+  }
+  assert.equal(p.runtime.specialFight.losses, 2);
+  save.eventTeams['zone:483'] = ['garchomp'];
+  assert.deepEqual(Array.from(p.fixedSelectedUids(save, plan)), ['garchomp']);
+  assert.equal(p.observeFixedFight(save, plan).losses, 0);
+});
+
+test('eligible popularity picks lead the automatic recommendation while pool restrictions hold', () => {
+  const { p, save } = loadAssistant();
+  save.mons = [6, 445, 376].map((id) => ({ id, uid: String(id), reg: 'sinnoh', level: 100 }));
+  p.settings.candidatePool = { enabled: true, minPower: 500, uids: ['6', '445'] };
+  const plan = p.recommendFixedTeam(save, { region: 'sinnoh', level: 100 }, 483, new Set(), [376, 6, 445]);
+  assert.deepEqual(Array.from(plan.mons, ({ id }) => id), [6, 445]);
+  assert.equal(plan.usesPopularity, true);
 });
 
 test('a generated Rotom remains available until its node is passed, even after weather changes', () => {

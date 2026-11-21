@@ -73,21 +73,21 @@ test("generated data matches the inspected game build", () => {
   );
 });
 
-test("userscript and development metadata share version 0.16.5", () => {
-  assert.equal(packageJson.version, "0.16.5");
-  assert.ok(source.includes("// @version      0.16.5"));
-  assert.ok(source.includes('const VERSION = "0.16.5"'));
-  assert.ok(viteConfig.includes('version: "0.16.5"'));
+test("userscript and development metadata share version 0.17.0", () => {
+  assert.equal(packageJson.version, "0.17.0");
+  assert.ok(source.includes("// @version      0.17.0"));
+  assert.ok(source.includes('const VERSION = "0.17.0"'));
+  assert.ok(viteConfig.includes('version: "0.17.0"'));
   assert.ok(source.includes("// @updateURL    https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(source.includes("// @downloadURL  https://raw.githubusercontent.com/stdAri/pokecatch-assistant/main/dist/pokecatch-assistant.user.js"));
   assert.ok(viteConfig.includes('namespace: "local.pokecatch.assistant.dev"'));
   assert.ok(viteConfig.includes("/;\\r?\\n  const SAVE_KEY/"));
   const readme = fs.readFileSync(new URL("../README.md", import.meta.url), "utf8");
   const changelog = fs.readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8");
-  assert.ok(readme.includes("version-0.16.5-blue"));
+  assert.ok(readme.includes("version-0.17.0-blue"));
   assert.ok(readme.includes("安装 PokeCatch 助手 v0.16.1"));
   assert.ok(readme.includes("fe212d1263400d7c4746b70845d7f9716d8977c1/dist/pokecatch-assistant.user.js"));
-  assert.ok(changelog.includes("## 0.16.5"));
+  assert.ok(changelog.includes("## 0.17.0"));
 });
 
 test("compatibility verifies known bundles and allows structurally compatible unknown bundles", () => {
@@ -413,7 +413,7 @@ test("new regions accept missing presets and only recommend locally available Po
   assert.equal(pokemonHomeRegion(mons[1]), "johto");
   assert.equal(requiredTeamSize(save), 4);
   assert.equal(requiredTeamSize({ ...save, link: { ...save.link, side: "from" } }), 2);
-  assert.ok(source.includes("const rawCandidates = teamCandidatesForRecommendation(save);"));
+  assert.ok(source.includes("const rawCandidates = candidateOverride ?? teamCandidatesForRecommendation(save);"));
   assert.ok(source.includes("removeClearlyDominatedCandidates(save, rawCandidates"));
   assert.ok(source.includes("const fullTeamSize = requiredTeamSize(save);"));
 });
