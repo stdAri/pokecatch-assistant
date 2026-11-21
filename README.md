@@ -80,7 +80,7 @@
 3. 在 Tampermonkey 安装页面检查脚本名称与权限，然后保存。
 4. 刷新 Poke'Catch；游戏顶部状态栏会出现“PokéCatch 助手”。
 
-如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.16.1](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/fe212d1263400d7c4746b70845d7f9716d8977c1/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.16.1 实现提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
+如果 GitHub Raw 的 `main` 分支缓存异常，可使用当前版本的固定安装地址：[安装 PokeCatch 助手 v0.17.0](https://raw.githubusercontent.com/stdAri/pokecatch-assistant/5a08cc4a31891d97b14bae06293f28a77b0173e1/dist/pokecatch-assistant.user.js)。该地址绑定到真实不可变的 v0.17.0 实现提交，不受 `main` 分支缓存影响；后续自动更新仍由脚本内的 `@updateURL` 获取最新稳定版。
 
 如果浏览器没有自动打开安装页，也可以在 Tampermonkey 中新建脚本，将 [`dist/pokecatch-assistant.user.js`](dist/pokecatch-assistant.user.js) 的完整内容粘贴并保存。
 
